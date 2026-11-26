@@ -28,38 +28,65 @@ final class RemoteShortcutPanel {
     void platform(String value){String next=RemoteShortcuts.platform(value);if(!platform.equals(next)){platform=next;page=0;close();}}
     private void hideEditor(){if(manager!=null&&manager.getWindow()!=null)context.getSystemService(android.view.inputmethod.InputMethodManager.class).hideSoftInputFromWindow(manager.getWindow().getDecorView().getWindowToken(),0);}
     void close(){if(manager!=null){hideEditor();manager.dismiss();manager=null;}}
-    private boolean dark(){return (context.getResources().getConfiguration().uiMode&Configuration.UI_MODE_NIGHT_MASK)==Configuration.UI_MODE_NIGHT_YES;}
-    private int ink(){return dark()?Color.WHITE:0xFF202124;}
-    private int surface(){return dark()?0xFF202124:0xFFF1F3F6;}
+    private boolean dark(){return true;}
+    private int ink(){return Color.WHITE;}
+    private int surface(){return 0xFF141519;}
     private TextView text(String value,int size){TextView text=ui.text(value,size,false);text.setTextColor(ink());return text;}
     private TextView button(String value,Runnable action){TextView button=ui.action(value,ink(),action);button.setTextSize(13);button.setMinHeight(ui.dp(44));button.setPadding(ui.dp(8),0,ui.dp(8),0);return button;}
     private void refresh(){changed.run();}
     View create(){
-        LinearLayout root=ui.column();root.setPadding(ui.dp(6),0,ui.dp(6),0);
-        String[] groups={"common","keys","system","mine"},labels={L10n.tr("常用"),L10n.tr("按键"),L10n.tr("系统"),L10n.tr("我的")};
-        root.addView(new SegmentedControl(ui,labels,category,true,index->{category=index;page=0;refresh();}),new LinearLayout.LayoutParams(-1,ui.dp(36)));
-        if(category==2&&platform.equals("linux")){
-            Spinner desktop=spinner(new String[]{L10n.tr("选择桌面方案"),"GNOME","KDE Plasma"},store.desktop().equals("gnome")?1:store.desktop().equals("kde")?2:0,index->{String next=index==1?"gnome":index==2?"kde":"";if(!store.desktop().equals(next)){store.desktop(next);page=0;refresh();}});
-            root.addView(desktop,new LinearLayout.LayoutParams(-1,ui.dp(40)));
+        LinearLayout root=ui.column();root.setPadding(ui.dp(8),ui.dp(4),ui.dp(8),ui.dp(6));
+        List<RemoteShortcuts.Item> items=new ArrayList<>();
+        for(RemoteShortcuts.Item item:store.items(platform)){
+            if(item.group.equals("common")||item.group.equals("system")||item.group.equals("mine"))items.add(item);
         }
-        List<RemoteShortcuts.Item> items=new ArrayList<>();for(RemoteShortcuts.Item item:store.items(platform))if(item.group.equals(groups[category]))items.add(item);
-        int count=Math.max(1,(items.size()+5)/6);page=Math.min(page,count-1);
-        ScrollView gridScroll=new ScrollView(context);gridScroll.setFillViewport(true);root.addView(gridScroll,new LinearLayout.LayoutParams(-1,0,1));
-        LinearLayout grid=ui.column();grid.setMinimumHeight(ui.dp(items.isEmpty()?44:108));gridScroll.addView(grid,new FrameLayout.LayoutParams(-1,-2));
-        if(items.isEmpty()){TextView empty=text(L10n.tr(platform.equals("unknown")?"等待远端平台信息":category==2?"选择桌面方案以加载系统预设":"还没有自定义快捷键"),13);empty.setGravity(Gravity.CENTER);grid.addView(empty,new LinearLayout.LayoutParams(-1,-1));}
-        else for(int row=0;row<2;row++){
-            LinearLayout line=ui.row();for(int col=0;col<3;col++){
-                int index=page*6+row*3+col;LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(0,-1,1);params.setMargins(ui.dp(3),ui.dp(3),ui.dp(3),ui.dp(3));
-                if(index>=items.size()){line.addView(new View(context),params);continue;}
-                RemoteShortcuts.Item item=items.get(index);LinearLayout tile=ui.column();tile.setGravity(Gravity.CENTER);tile.setPadding(ui.dp(3),0,ui.dp(3),0);tile.setBackground(ui.background(dark()?0xFF353A43:Color.WHITE,7));
-                TextView name=text(item.title(),13);name.setGravity(Gravity.CENTER);name.setMaxLines(2);tile.addView(name);TextView chord=text(item.chord(),11);chord.setGravity(Gravity.CENTER);chord.setMaxLines(2);tile.addView(chord);
-                tile.setContentDescription(item.title()+", "+item.chord());tile.setClickable(true);tile.setFocusable(true);tile.setOnClickListener(v->send.accept(item));line.addView(tile,params);
-            }grid.addView(line,new LinearLayout.LayoutParams(-1,0,1));
+        boolean landscape=context.getResources().getConfiguration().screenWidthDp>context.getResources().getConfiguration().screenHeightDp;
+        int cols=landscape?5:3;
+        ScrollView gridScroll=new ScrollView(context);gridScroll.setFillViewport(true);
+        root.addView(gridScroll,new LinearLayout.LayoutParams(-1,0,1));
+        LinearLayout grid=ui.column();
+        gridScroll.addView(grid,new FrameLayout.LayoutParams(-1,-2));
+
+        int totalCells=items.size()+1;
+        int rows=(totalCells+cols-1)/cols;
+        for(int r=0;r<rows;r++){
+            LinearLayout line=ui.row();
+            for(int c=0;c<cols;c++){
+                int cellIndex=r*cols+c;
+                LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(0,ui.dp(54),1);
+                params.setMargins(ui.dp(4),ui.dp(4),ui.dp(4),ui.dp(4));
+                if(cellIndex==0){
+                    LinearLayout editTile=ui.column();editTile.setGravity(Gravity.CENTER);
+                    editTile.setBackground(ui.background(0x00000000,8));
+                    editTile.addView(ui.icon("sliders",0xFF3A8BFF),ui.size(18,18));
+                    ui.gap(editTile,3);
+                    TextView editLabel=ui.text(L10n.tr("编辑"),12,true);editLabel.setTextColor(0xFF3A8BFF);editLabel.setGravity(Gravity.CENTER);
+                    editTile.addView(editLabel);
+                    editTile.setClickable(true);editTile.setFocusable(true);
+                    editTile.setOnClickListener(v->manage());
+                    editTile.setEnabled(!platform.equals("unknown"));
+                    line.addView(editTile,params);
+                    continue;
+                }
+                int itemIndex=cellIndex-1;
+                if(itemIndex>=items.size()){line.addView(new View(context),params);continue;}
+                RemoteShortcuts.Item item=items.get(itemIndex);
+                LinearLayout tile=ui.column();tile.setGravity(Gravity.CENTER);tile.setPadding(ui.dp(4),0,ui.dp(4),0);
+                tile.setBackground(ui.background(0xFF282A30,8));
+                TextView chord=text(item.chord(),11);chord.setTextColor(0xFFD1D1D6);chord.setGravity(Gravity.CENTER);chord.setSingleLine();
+                chord.setAutoSizeTextTypeUniformWithConfiguration(8,11,1,android.util.TypedValue.COMPLEX_UNIT_SP);
+                tile.addView(chord);
+                ui.gap(tile,2);
+                TextView name=text(item.title(),12);name.setTextColor(Color.WHITE);name.setGravity(Gravity.CENTER);name.setSingleLine();
+                name.setAutoSizeTextTypeUniformWithConfiguration(9,12,1,android.util.TypedValue.COMPLEX_UNIT_SP);
+                tile.addView(name);
+                tile.setContentDescription(item.title()+", "+item.chord());
+                tile.setClickable(true);tile.setFocusable(true);
+                tile.setOnClickListener(v->send.accept(item));
+                line.addView(tile,params);
+            }
+            grid.addView(line,new LinearLayout.LayoutParams(-1,-2));
         }
-        LinearLayout footer=ui.row();footer.setGravity(Gravity.CENTER_VERTICAL);
-        if(count>1){TextView previous=button("‹",()->{page--;refresh();});previous.setEnabled(page>0);previous.setContentDescription(L10n.tr("上一页"));footer.addView(previous);footer.addView(text((page+1)+" / "+count,12));TextView next=button("›",()->{page++;refresh();});next.setEnabled(page+1<count);next.setContentDescription(L10n.tr("下一页"));footer.addView(next);}
-        else footer.addView(text(RemoteShortcuts.platformName(platform),12));
-        footer.addView(new View(context),new LinearLayout.LayoutParams(0,1,1));TextView edit=button(L10n.tr("管理与自定义"),this::manage);edit.setEnabled(!platform.equals("unknown"));footer.addView(edit);root.addView(footer,new LinearLayout.LayoutParams(-1,ui.dp(44)));
         return root;
     }
     private Spinner spinner(String[] labels,int selected,Consumer<Integer> changed){Spinner spinner=new Spinner(context);ArrayAdapter<String> adapter=new ArrayAdapter<>(context,android.R.layout.simple_spinner_dropdown_item,labels);spinner.setAdapter(adapter);spinner.setSelection(selected);spinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener(){public void onNothingSelected(android.widget.AdapterView<?> p){}public void onItemSelected(android.widget.AdapterView<?> p,View v,int position,long id){changed.accept(position);}});return spinner;}

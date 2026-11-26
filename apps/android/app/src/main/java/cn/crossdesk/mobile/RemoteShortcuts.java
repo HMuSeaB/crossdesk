@@ -36,7 +36,7 @@ final class RemoteShortcuts {
     static String keyName(int code,String platform){
         if(code>=65&&code<=90||code>=48&&code<=57)return Character.toString((char)code);
         if(code>=112&&code<=123)return "F"+(code-111);
-        return switch(code){case 8->platform.equals("macos")?"Delete ⌫":"Backspace";case 9->"Tab";case 13->"Enter";case 27->"Esc";case 32->"Space";case 33->"PageUp";case 34->"PageDown";case 35->"End";case 36->"Home";case 37->"←";case 38->"↑";case 39->"→";case 40->"↓";case 45->"Insert";case 46->platform.equals("macos")?"Delete ⌦":"Delete";default->"";};
+        return switch(code){case 8->platform.equals("macos")?"Delete ⌫":"Backspace";case 9->"Tab";case 13->"Enter";case 20->"Caps Lock";case 27->"Esc";case 32->"Space";case 33->"PageUp";case 34->"PageDown";case 35->"End";case 36->"Home";case 37->"←";case 38->"↑";case 39->"→";case 40->"↓";case 44->"PrtScr";case 45->"Insert";case 46->platform.equals("macos")?"Delete ⌦":"Delete";case 91->platform.equals("macos")?"Cmd":"Win";default->"";};
     }
     static List<Integer> keys(){List<Integer> result=new ArrayList<>();for(int i=65;i<=90;i++)result.add(i);for(int i=48;i<=57;i++)result.add(i);for(int i=112;i<=123;i++)result.add(i);for(int i:new int[]{27,9,13,32,8,46,45,36,35,33,34,37,38,39,40})result.add(i);return result;}
     static int[] normalize(int[] modifiers){return Arrays.stream(MODIFIERS).filter(code->Arrays.stream(modifiers).anyMatch(value->value==code)).toArray();}
@@ -52,7 +52,16 @@ final class RemoteShortcuts {
         for(int key:new int[]{27,9,13,8,46,36,35,33,34,37,38,39,40,112,113,114,115,116,117,118,119,120,121,122,123})
             result.add(preset(key==27?"esc":key==9?"tab":"key-"+key,keyName(key,os),os,"keys",key));
         if(os.equals("windows")){
-            result.add(preset("switch","切换窗口",os,"system",9,18));result.add(preset("desktop","显示桌面",os,"system",68,91));result.add(preset("taskview","展示所有窗口",os,"system",9,91));result.add(preset("task","任务管理器",os,"system",27,17,16));
+            result.add(preset("explorer","文件资源",os,"system",69,91));
+            result.add(preset("screenshot","截图",os,"system",83,91,16));
+            result.add(preset("clip-hist","剪贴板历史",os,"system",86,91));
+            result.add(preset("caps","大小写锁定",os,"system",20));
+            result.add(preset("win-start","开始",os,"system",91));
+            result.add(preset("desktop","显示桌面",os,"system",68,91));
+            result.add(preset("taskview","切换窗口",os,"system",9,91));
+            result.add(preset("lock-pc","锁定屏幕",os,"system",76,91));
+            result.add(preset("switch","应用切换",os,"system",9,18));
+            result.add(preset("task","任务管理器",os,"system",27,17,16));
             result.add(new Item("sas","安全选项",os,"system",46,new int[]{17,18},true,false));
         }else if(os.equals("macos")){
             result.add(preset("switch","切换应用",os,"system",9,91));result.add(preset("search","聚焦搜索",os,"system",32,91));result.add(preset("forcequit","强制退出面板",os,"system",27,18,91));
