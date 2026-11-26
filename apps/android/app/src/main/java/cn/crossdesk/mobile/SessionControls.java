@@ -18,6 +18,10 @@ final class SessionControls extends FrameLayout {
         default void displayResolution(RemoteDisplayResolutions.Mode mode) { }
         void sendFile(); void saveFile(); void secureAttention();
         default void togglePrivacy() { }
+        default void showDesktop() { }
+        default void showAllWindows() { }
+        default void unlockWithBiometric() { }
+        default void configureUnlockPassword() { }
     }
     private final MobileUi ui;
     private final Actions actions;
@@ -28,6 +32,11 @@ final class SessionControls extends FrameLayout {
     private final RemoteKeyboard keyboard;
     private final IntConsumer keyboardInsetChanged;
     private VirtualMouseBar mouseBar;
+    private TextView statsHud;
+    private int statsHudMode = 2;
+    private LinearLayout sideBar, sideBarItems;
+    private MobileUi.Icon sideBarToggleIcon;
+    private boolean sideBarExpanded = true;
     private float mouseX = Float.NaN, mouseY = Float.NaN;
     private boolean mouseVisible = true, pictureInPicture;
     private ScrollView menuScroll;
@@ -74,6 +83,94 @@ final class SessionControls extends FrameLayout {
         ((FrameLayout)orb).removeAllViews();((FrameLayout)orb).addView(brand,new LayoutParams(ui.dp(46),ui.dp(46),Gravity.CENTER));
         orb.setBackground(ui.background(0xFFF5F5F7,27));orb.setElevation(ui.dp(7));addView(orb,new LayoutParams(ui.dp(54),ui.dp(54)));
         drag(orb,orb,()->{if(menu==null)openMenu("controls");else closeMenu();});
+        initStatsHud(context);
+        initSideBar(context);
+    }
+    private void initStatsHud(Context context){
+        statsHud=new TextView(context);
+        statsHud.setTextSize(10);
+        statsHud.setTextColor(0xFFE5E5EA);
+        statsHud.setTypeface(android.graphics.Typeface.MONOSPACE);
+        statsHud.setFontFeatureSettings("tnum");
+        statsHud.setPadding(ui.dp(8),ui.dp(5),ui.dp(8),ui.dp(5));
+        android.graphics.drawable.GradientDrawable bg=ui.background(0xAA121216,8);
+        bg.setStroke(ui.dp(.5f),0x33FFFFFF);
+        statsHud.setBackground(bg);
+        statsHud.setClickable(true);
+        statsHud.setOnClickListener(v->{statsHudMode=(statsHudMode+1)%3;renderStatsHud();});
+        LayoutParams p=new LayoutParams(-2,-2,Gravity.TOP|Gravity.START);
+        p.leftMargin=ui.dp(12);p.topMargin=ui.dp(12);
+        addView(statsHud,p);
+        statsHud.setVisibility(GONE);
+    }
+    private void initSideBar(Context context){
+        sideBar=ui.column();
+        sideBar.setGravity(Gravity.CENTER_HORIZONTAL);
+        sideBar.setPadding(ui.dp(4),ui.dp(6),ui.dp(4),ui.dp(6));
+        android.graphics.drawable.GradientDrawable bg=ui.background(0xCC16161B,14);
+        bg.setStroke(ui.dp(.5f),0x33FFFFFF);
+        sideBar.setBackground(bg);
+        sideBar.setElevation(ui.dp(6));
+
+        FrameLayout collapseBtn=new FrameLayout(context);
+        collapseBtn.setClickable(true);collapseBtn.setFocusable(true);
+        sideBarToggleIcon=ui.icon("chevron_right",0xFFAEAEB2);
+        collapseBtn.addView(sideBarToggleIcon,new LayoutParams(ui.dp(18),ui.dp(18),Gravity.CENTER));
+        collapseBtn.setOnClickListener(v->{sideBarExpanded=!sideBarExpanded;updateSideBarState();});
+        sideBar.addView(collapseBtn,ui.size(44,24));
+
+        sideBarItems=ui.column();
+        sideBarItems.setGravity(Gravity.CENTER_HORIZONTAL);
+        addSideButton(context,"sliders",L10n.tr("操作"),()->{if(menu==null)openMenu("controls");else closeMenu();},actions::mouse);
+        addSideButton(context,"keyboard",L10n.tr("键盘"),()->{closeMenu();toggleKeyboard();},null);
+        addSideButton(context,"display",L10n.tr("桌面"),actions::showDesktop,null);
+        addSideButton(context,"windows",L10n.tr("窗口"),actions::showAllWindows,null);
+        addSideButton(context,"unlock",L10n.tr("解锁"),actions::unlockWithBiometric,actions::configureUnlockPassword);
+        sideBar.addView(sideBarItems,ui.size(-2,-2));
+
+        LayoutParams p=new LayoutParams(-2,-2,Gravity.END|Gravity.CENTER_VERTICAL);
+        p.rightMargin=ui.dp(8);
+        addView(sideBar,p);
+        sideBar.setVisibility(GONE);
+    }
+    private void addSideButton(Context context,String iconName,String label,Runnable onClick,Runnable onLongClick){
+        LinearLayout btn=ui.column();
+        btn.setGravity(Gravity.CENTER);
+        btn.setPadding(ui.dp(4),ui.dp(6),ui.dp(4),ui.dp(6));
+        btn.setClickable(true);btn.setFocusable(true);
+        btn.setBackground(ui.background(0x00000000,10));
+        btn.addView(ui.icon(iconName,Color.WHITE),ui.size(18,18));
+        ui.gap(btn,3);
+        TextView text=ui.text(label,9,false);
+        text.setTextColor(0xFFE5E5EA);
+        text.setGravity(Gravity.CENTER);
+        text.setSingleLine();
+        btn.addView(text);
+        btn.setOnClickListener(v->onClick.run());
+        if(onLongClick!=null)btn.setOnLongClickListener(v->{onLongClick.run();return true;});
+        LinearLayout.LayoutParams lp=ui.size(44,-2);
+        lp.topMargin=ui.dp(2);
+        sideBarItems.addView(btn,lp);
+    }
+    private void updateSideBarState(){
+        if(sideBarItems!=null)sideBarItems.setVisibility(sideBarExpanded?VISIBLE:GONE);
+        if(sideBarToggleIcon!=null)sideBarToggleIcon.setName(sideBarExpanded?"chevron_right":"chevron_left");
+    }
+    private void renderStatsHud(){
+        if(statsHud==null)return;
+        boolean show=!pictureInPicture&&waiting.getVisibility()==GONE&&statsHudMode>0;
+        statsHud.setVisibility(show?VISIBLE:GONE);
+        if(!show)return;
+        if(statsHudMode==1){
+            statsHud.setText(network.fps+" FPS · "+RemoteNetworkStatistics.latency(network.rtt));
+            return;
+        }
+        RemoteNetworkStatistics.Traffic video=network.report==null?null:network.report.traffic[0];
+        String in=RemoteNetworkStatistics.bitrate(video==null?-1:video.inbound);
+        String loss=RemoteNetworkStatistics.loss(video==null?Double.NaN:video.loss);
+        statsHud.setText(network.mode()+"  "+network.fps+" FPS  "+in+"\n"
+                +L10n.tr("延时 ")+RemoteNetworkStatistics.latency(network.rtt)
+                +"  "+L10n.tr("丢包 ")+loss+"  "+network.resolution());
     }
     void setRelative(boolean value){relative=value;if(menu!=null&&menuPage.equals("controls"))openMenu("controls");}
     void setHostPlatform(String platform){
@@ -94,7 +191,12 @@ final class SessionControls extends FrameLayout {
     void setPictureInPicture(boolean value){
         pictureInPicture=value;
         if(value){cancelMouseInput();closeMenu();closeKeyboard();}
-        setVisibility(value?GONE:VISIBLE);positionMouse();
+        setVisibility(value?GONE:VISIBLE);positionMouse();renderStatsHud();updateSideBarVisibility();
+    }
+    private void updateSideBarVisibility(){
+        if(sideBar==null)return;
+        boolean show=!pictureInPicture&&waiting.getVisibility()==GONE;
+        sideBar.setVisibility(show?VISIBLE:GONE);
     }
     private void toggleMouse(){cancelMouseInput();mouseVisible=!mouseVisible;closeMenu();positionMouse();}
     private void positionMouse(){
@@ -112,9 +214,9 @@ final class SessionControls extends FrameLayout {
         mouseBar.setVisibility(VISIBLE);
     }
     void setMuted(boolean value){muted=value;if(menu!=null&&menuPage.equals("controls"))openMenu("controls");}
-    void videoSize(int width,int height){waiting.setVisibility(GONE);positionMouse();}
+    void videoSize(int width,int height){waiting.setVisibility(GONE);positionMouse();renderStatsHud();updateSideBarVisibility();}
     void resetVideoStatistics(){statistics(new RemoteNetworkStatistics.Snapshot(network.report,0,0,0,Double.NaN,network.rtt,network.remoteEncoder,network.localDecoder));}
-    void statistics(RemoteNetworkStatistics.Snapshot value){network=value;renderNetwork();}
+    void statistics(RemoteNetworkStatistics.Snapshot value){network=value;renderNetwork();renderStatsHud();}
     void videoSettings(RemoteVideoSettings value){settings=value;renderVideoSettings();}
     void displayResolutions(RemoteDisplayResolutions value,int display){resolutions=value;resolutionDisplay=display;renderResolutions();}
     void privacyScreen(RemotePrivacyScreen value){privacy=value;renderPrivacy();}
@@ -163,7 +265,7 @@ final class SessionControls extends FrameLayout {
                 visibleControls.add(index);
             }
             int controlCount=visibleControls.size();
-            for(int row=0;row<(controlCount+menuColumns-1)/menuColumns;row++){LinearLayout line=ui.row();for(int col=0;col<menuColumns;col++){int position=row*menuColumns+col;if(position>=controlCount){View spacer=new View(getContext());LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,ui.dp(52),1);if(col>0)p.leftMargin=ui.dp(7);line.addView(spacer,p);continue;}int index=visibleControls.get(position);LinearLayout control=ui.column();control.setGravity(Gravity.CENTER);control.setBackground(ui.background(0xFFF0F0F2,10));MobileUi.Icon icon=ui.icon(icons[index],INK);control.addView(icon,ui.size(19,19));ui.gap(control,4);TextView caption=ui.text(labels[index],10,false);caption.setMaxLines(2);caption.setAutoSizeTextTypeUniformWithConfiguration(8,10,1,android.util.TypedValue.COMPLEX_UNIT_SP);caption.setGravity(Gravity.CENTER);control.addView(caption);control.setContentDescription(labels[index]);control.setClickable(true);control.setFocusable(true);control.setOnClickListener(v->clicks[index].run());
+            for(int row=0;row<(controlCount+menuColumns-1)/menuColumns;row++){LinearLayout line=ui.row();for(int col=0;col<menuColumns;col++){int position=row*menuColumns+col;if(position>=controlCount){View spacer=new View(getContext());LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,ui.dp(52),1);if(col>0)p.leftMargin=ui.dp(7);line.addView(spacer,p);continue;}int index=visibleControls.get(position);LinearLayout control=ui.column();control.setGravity(Gravity.CENTER);control.setBackground(ui.background(SURFACE_ELEVATED,10));MobileUi.Icon icon=ui.icon(icons[index],INK);control.addView(icon,ui.size(19,19));ui.gap(control,4);TextView caption=ui.text(labels[index],10,false);caption.setMaxLines(2);caption.setAutoSizeTextTypeUniformWithConfiguration(8,10,1,android.util.TypedValue.COMPLEX_UNIT_SP);caption.setGravity(Gravity.CENTER);control.addView(caption);control.setContentDescription(labels[index]);control.setClickable(true);control.setFocusable(true);control.setOnClickListener(v->clicks[index].run());
                     if(index==10){privacyButton=control;privacyIcon=icon;privacyCaption=caption;}
                     LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,ui.dp(52),1);if(col>0)p.leftMargin=ui.dp(7);line.addView(control,p);
                 }body.addView(line);if((row+1)*menuColumns<controlCount)ui.gap(body,7);}
@@ -174,7 +276,7 @@ final class SessionControls extends FrameLayout {
             networkPage(body);
         }else{
             TextView resolutionTitle=ui.text(L10n.tr("被控端分辨率"),12,false);resolutionTitle.setTextColor(SECONDARY);body.addView(resolutionTitle);ui.gap(body,5);
-            resolutionButton=ui.action("",INK,this::chooseResolution);resolutionButton.setTextSize(13);resolutionButton.setBackground(ui.background(0xFFF0F0F2,7));body.addView(resolutionButton,ui.size(-1,34));
+            resolutionButton=ui.action("",INK,this::chooseResolution);resolutionButton.setTextSize(13);resolutionButton.setBackground(ui.background(SURFACE_ELEVATED,7));body.addView(resolutionButton,ui.size(-1,34));
             resolutionFeedback=ui.text("",12,false);resolutionFeedback.setTextColor(SECONDARY);resolutionFeedback.setAccessibilityLiveRegion(ACCESSIBILITY_LIVE_REGION_POLITE);body.addView(resolutionFeedback);ui.gap(body,12);renderResolutions();
             settingRows.add(new SettingRow(body,0,L10n.tr("画面质量"),new String[]{L10n.tr("低"),L10n.tr("中"),L10n.tr("高")},new int[]{0,1,2}));ui.gap(body,12);
             settingRows.add(new SettingRow(body,1,L10n.tr("画面采集帧率"),new String[]{"30 fps","60 fps"},new int[]{30,60}));ui.gap(body,12);

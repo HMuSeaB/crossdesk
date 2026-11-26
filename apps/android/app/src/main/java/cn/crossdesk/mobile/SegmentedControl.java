@@ -28,7 +28,7 @@ final class SegmentedControl extends LinearLayout {
         super(ui.context);this.changed=changed;selected=Math.max(0,Math.min(titles.length-1,selection));
         int inset=ui.dp(MobileUi.SEGMENT_INSET),height=ui.dp(MobileUi.SEGMENT_HEIGHT)-inset*2;
         radius=height/2f;
-        setGravity(Gravity.CENTER_VERTICAL);setPadding(inset,inset,inset,inset);setBackground(ui.background(0xFFE9E9EF,MobileUi.SEGMENT_HEIGHT/2));paint.setColor(Color.WHITE);
+        setGravity(Gravity.CENTER_VERTICAL);setPadding(inset,inset,inset,inset);setBackground(ui.background(MobileUi.SURFACE,MobileUi.SEGMENT_HEIGHT/2));paint.setColor(MobileUi.SURFACE_ELEVATED);
         for(int i=0;i<titles.length;i++){
             final int index=i;TextView choice=ui.action(titles[i],MobileUi.INK,()->select(index));
             choice.setTextSize(13);choice.setSingleLine();choice.setAutoSizeTextTypeUniformWithConfiguration(9,13,1,android.util.TypedValue.COMPLEX_UNIT_SP);choice.setMinHeight(height);choice.setSelected(i==selected);choice.setEnabled(enabled);choice.setAlpha(enabled?1:.45f);

@@ -52,7 +52,7 @@ final class RemoteShortcuts {
         for(int key:new int[]{27,9,13,8,46,36,35,33,34,37,38,39,40,112,113,114,115,116,117,118,119,120,121,122,123})
             result.add(preset(key==27?"esc":key==9?"tab":"key-"+key,keyName(key,os),os,"keys",key));
         if(os.equals("windows")){
-            result.add(preset("switch","切换窗口",os,"system",9,18));result.add(preset("desktop","显示桌面",os,"system",68,91));result.add(preset("task","任务管理器",os,"system",27,17,16));
+            result.add(preset("switch","切换窗口",os,"system",9,18));result.add(preset("desktop","显示桌面",os,"system",68,91));result.add(preset("taskview","展示所有窗口",os,"system",9,91));result.add(preset("task","任务管理器",os,"system",27,17,16));
             result.add(new Item("sas","安全选项",os,"system",46,new int[]{17,18},true,false));
         }else if(os.equals("macos")){
             result.add(preset("switch","切换应用",os,"system",9,91));result.add(preset("search","聚焦搜索",os,"system",32,91));result.add(preset("forcequit","强制退出面板",os,"system",27,18,91));

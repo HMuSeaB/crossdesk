@@ -79,6 +79,7 @@ public final class MainActivity extends Activity implements NativeSession.Listen
     private RemoteVideoView video;
     private RemoteOrientation remoteOrientation;
     private SessionControls controls;
+    private BiometricUnlockManager biometricUnlock;
     private Dialog passwordDialog, progressDialog, privacyDialog;
     private AlertDialog disconnectDialog;
     private AlertDialog connectionDialog;
@@ -167,7 +168,7 @@ public final class MainActivity extends Activity implements NativeSession.Listen
             if (controller == null) return;
             int light = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
                     | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;
-            controller.setSystemBarsAppearance(sessionPage ? 0 : light, light);
+            controller.setSystemBarsAppearance(0, light);
             int bars = WindowInsets.Type.statusBars() | WindowInsets.Type.navigationBars();
             if (immersive) {
                 controller.setSystemBarsBehavior(WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
@@ -176,7 +177,7 @@ public final class MainActivity extends Activity implements NativeSession.Listen
                 controller.show(bars);
             }
         } else {
-            int flags = sessionPage ? 0 : View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+            int flags = 0;
             if (immersive) flags |= View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
                     | View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION;
             getWindow().getDecorView().setSystemUiVisibility(flags);
@@ -525,6 +526,10 @@ public final class MainActivity extends Activity implements NativeSession.Listen
             public void disconnect(){confirmDisconnect();}public void display(){selectDisplay();}public void clipboard(){MainActivity.this.clipboard();}
             public void sendFile(){chooseFile();}public void saveFile(){saveReceivedFile();}public void secureAttention(){MainActivity.this.secureAttention();}
             public void togglePrivacy(){if(ready&&session!=null)session.togglePrivacy();}
+            public void showDesktop(){if(ready&&session!=null)session.chord(68,new int[]{0x5B});}
+            public void showAllWindows(){if(ready&&session!=null)session.chord(9,new int[]{0x5B});}
+            public void unlockWithBiometric(){if(ready&&session!=null)biometricUnlock().promptAndUnlock(MainActivity.this,connectedRemote,MainActivity.this::sendUnlockSequence);}
+            public void configureUnlockPassword(){biometricUnlock().showPasswordSetupDialog(MainActivity.this,connectedRemote,null);}
             public void key(int code){tapKey(code);}
             public boolean textEdit(int count,String value){return sendTextEdit(count,value);}
             public void chord(int code,int[] modifiers){if(ready&&session!=null)session.chord(code,modifiers);}public void shortcut(int code){MainActivity.this.shortcut(code);}public void text(String value){sendText(value);}
@@ -704,6 +709,29 @@ public final class MainActivity extends Activity implements NativeSession.Listen
         if(session==null)return false;
         if(session.textEdit(count,value))return true;
         toast(L10n.tr("当前远端不支持直接输入此文本，请使用支持文本输入的被控端版本，或通过剪贴板发送"));return false;
+    }
+    private BiometricUnlockManager biometricUnlock(){
+        if(biometricUnlock==null)biometricUnlock=new BiometricUnlockManager(new SecretStore(this));
+        return biometricUnlock;
+    }
+    private void sendUnlockSequence(String password){
+        if(!ready||session==null)return;
+        tapKey(32);
+        mainHandler.postDelayed(()->{
+            if(!ready||session==null)return;
+            if(!session.textEdit(0,password))tapAscii(password);
+            mainHandler.postDelayed(()->{
+                if(ready&&session!=null)tapKey(13);
+            },120);
+        },450);
+    }
+    private void tapAscii(String text){
+        for(int i=0;i<text.length();i++){
+            char ch=text.charAt(i);
+            if(ch>='a'&&ch<='z'){tapKey(ch-'a'+65);}
+            else if(ch>='A'&&ch<='Z'){session.chord(ch,new int[]{16});}
+            else if(ch>='0'&&ch<='9'){tapKey(ch);}
+        }
     }
     private void tapKey(int code){if(session!=null){session.key(code,true);session.key(code,false);}}
     private void shortcut(int code){if(ready&&session!=null)session.chord(code,new int[]{hostPlatform.equals("macos")?0x5B:0x11});}

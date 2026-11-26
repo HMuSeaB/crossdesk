@@ -9,8 +9,9 @@ import android.widget.*;
 
 /** Shared visual tokens matching the SwiftUI mobile screens. Values are in dp/sp. */
 final class MobileUi {
-    static final int BACKGROUND=0xFFF2F2F7, INK=0xFF1C1C1E, SECONDARY=0xFF737378,
-            LINE=0xFFE2E2E7, BLUE=0xFF2E7ADB, RED=0xFFFF3B30, GREEN=0xFF248A3D;
+    static final int BACKGROUND=0xFF0D0D0F, SURFACE=0xFF1A1A1E, SURFACE_ELEVATED=0xFF26262C,
+            INK=0xFFF5F5F7, SECONDARY=0xFF98989F, LINE=0xFF2C2C32,
+            BLUE=0xFF3A8BFF, RED=0xFFFF453A, GREEN=0xFF32D74B;
     // Match the iOS 26 Form sections and segmented Picker dimensions.
     static final int SETTINGS_CARD_RADIUS=26, SEGMENT_HEIGHT=32, SEGMENT_INSET=2;
     final Context context;
@@ -19,7 +20,7 @@ final class MobileUi {
     GradientDrawable background(int color,int radius) {
         GradientDrawable shape=new GradientDrawable();shape.setColor(color);shape.setCornerRadius(dp(radius));return shape;
     }
-    void card(View view,int radius) { GradientDrawable shape=background(Color.WHITE,radius);shape.setStroke(dp(.5f),LINE);view.setBackground(shape);view.setClipToOutline(true); }
+    void card(View view,int radius) { GradientDrawable shape=background(SURFACE,radius);shape.setStroke(dp(.5f),LINE);view.setBackground(shape);view.setClipToOutline(true); }
     FrameLayout shadowCard(View content,int radius) {
         card(content,radius);
         FrameLayout wrapper=new FrameLayout(context);
@@ -56,7 +57,7 @@ final class MobileUi {
         GradientDrawable gradient=new GradientDrawable(GradientDrawable.Orientation.TL_BR,new int[]{BLUE,0xFF1F61C7});gradient.setCornerRadius(dp(12));v.setBackground(gradient);return v;
     }
     View iconButton(String icon,String label,Runnable click) {
-        FrameLayout box=new FrameLayout(context);box.setBackground(background(Color.WHITE,10));
+        FrameLayout box=new FrameLayout(context);box.setBackground(background(SURFACE,10));
         Icon glyph=new Icon(context,icon,INK);FrameLayout.LayoutParams p=new FrameLayout.LayoutParams(dp(22),dp(22),Gravity.CENTER);box.addView(glyph,p);
         box.setContentDescription(label);box.setClickable(true);box.setFocusable(true);box.setOnClickListener(v->click.run());return box;
     }
@@ -81,8 +82,8 @@ final class MobileUi {
             bitmap=Bitmap.createBitmap(bounds.width()+inset*2,bounds.height()+inset*2,Bitmap.Config.ARGB_8888);
             bitmap.setDensity(Bitmap.DENSITY_NONE);
             Paint shadowPaint=new Paint(Paint.ANTI_ALIAS_FLAG);
-            shadowPaint.setColor(Color.WHITE);
-            shadowPaint.setShadowLayer(blurRadius,0,offsetY,Color.argb(Math.round(255*.055f),0,0,0));
+            shadowPaint.setColor(SURFACE);
+            shadowPaint.setShadowLayer(blurRadius,0,offsetY,Color.argb(Math.round(255*.18f),0,0,0));
             new Canvas(bitmap).drawRoundRect(inset,inset,inset+bounds.width(),inset+bounds.height(),cornerRadius,cornerRadius,shadowPaint);
         }
         @Override public void draw(Canvas canvas) {
@@ -148,6 +149,13 @@ final class MobileUi {
                     hiddenEye.cubicTo(7,20,13,21,18,17);
                     hiddenEye.moveTo(10,10);hiddenEye.cubicTo(8,13,11,16,14,14);
                     c.drawPath(hiddenEye,paint);path(c,3,3,21,21);break;
+                case "windows":
+                    c.drawRoundRect(3,3,10.5f,10.5f,1.5f,1.5f,paint);
+                    c.drawRoundRect(13.5f,3,21,10.5f,1.5f,1.5f,paint);
+                    c.drawRoundRect(3,13.5f,10.5f,21,1.5f,1.5f,paint);
+                    c.drawRoundRect(13.5f,13.5f,21,21,1.5f,1.5f,paint);break;
+                case "chevron_right":path(c,9,5,16,12,9,19);break;
+                case "chevron_left":path(c,15,5,8,12,15,19);break;
                 default:c.drawCircle(12,12,9,paint);path(c,12,10,12,17);c.drawPoint(12,6,paint);
             }c.restore();
         }
