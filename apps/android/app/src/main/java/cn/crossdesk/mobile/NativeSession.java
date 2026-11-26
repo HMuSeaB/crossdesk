@@ -348,9 +348,18 @@ final class NativeSession implements AutoCloseable {
             ui(() -> listener.controlFeedback(sent ? L10n.tr("已发送，请在远端粘贴") : L10n.tr("指令发送失败，请重试")));
         });
     }
+    void sendClipboardSilent(byte[] bytes) {
+        execute(() -> {
+            if (connected) nClipboard(handle, bytes);
+        });
+    }
     void secureAttention(){execute(()->{
         boolean sent=connected&&nSecureAttention(handle);
         ui(()->listener.controlFeedback(sent?L10n.tr("已发送 Ctrl+Alt+Del"):L10n.tr("指令发送失败，请重试")));
+    });}
+    void lockWorkstation(){execute(()->{
+        boolean sent=connected&&nLockWorkstation(handle);
+        ui(()->listener.controlFeedback(sent?L10n.tr("已发送锁定电脑指令"):L10n.tr("指令发送失败，请重试")));
     });}
     void sendFile(android.net.Uri uri){
         if(closed)return;
@@ -400,6 +409,7 @@ final class NativeSession implements AutoCloseable {
     private static native boolean nPresenceRequest(long handle,byte[] data);
     private static native boolean nClipboard(long handle, byte[] data);
     private static native boolean nSecureAttention(long handle);
+    private static native boolean nLockWorkstation(long handle);
     private static native boolean nPrivacy(long handle,int flag,boolean blockLocalInput);
     private static native void nFileDirectory(long handle,String directory);
     private static native boolean nSendFile(long handle,String path,byte[] name);

@@ -491,6 +491,15 @@ extern "C" JNIEXPORT jboolean JNICALL JNI_METHOD(nSecureAttention)(JNIEnv*, jcla
   const auto data = android_controller::SecureAttentionMessage();
   return MiniRtcSendReliableDataFrame(s->controller, data.data(), data.size(), kControlStream) == 0;
 }
+extern "C" JNIEXPORT jboolean JNICALL JNI_METHOD(nLockWorkstation)(JNIEnv*, jclass, jlong handle) {
+  auto* s = From(handle);
+  if (!s || !s->controller || s->stopping) return false;
+  crossdesk::RemoteAction action{};
+  action.type = crossdesk::service_command;
+  action.c.flag = crossdesk::lock_workstation;
+  const auto data = action.to_json();
+  return !data.empty() && MiniRtcSendReliableDataFrame(s->controller, data.data(), data.size(), kControlStream) == 0;
+}
 extern "C" JNIEXPORT jboolean JNICALL JNI_METHOD(nPrivacy)(
     JNIEnv*, jclass, jlong handle, jint flag, jboolean block_input) {
   auto* s = From(handle);

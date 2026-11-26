@@ -88,7 +88,10 @@ public final class MainActivity extends Activity implements NativeSession.Listen
     private AlertDialog privacyUnlockDialog;
     private RemoteVersionCheck remoteVersionCheck;
     private String host, connectedRemote="", hostPlatform="", remoteClipboard="", pendingPassword="", page="home";
-    private int port,selectedDisplay;
+    private String lastSyncedClip="", activeSecret="", reconnectTarget="";
+    private int port,selectedDisplay,reconnectAttempts;
+    private boolean manualDisconnect, reconnecting;
+    private Runnable reconnectRunnable;
     private JSONArray displays=new JSONArray();
     private boolean muted,ready,rememberPassword;
     private boolean remoteServiceAvailable;
@@ -496,13 +499,17 @@ public final class MainActivity extends Activity implements NativeSession.Listen
     }
     private void begin(String id,String secret){
         if (session != null) return;
+        cancelReconnect();
+        manualDisconnect=false;
+        activeSecret=secret;
+        reconnectTarget=id;
         videoWidth=videoHeight=0;enteredPictureInPicture=false;
         pictureInPicture.disconnect();updatePictureInPicture();
         remoteServiceAvailable=false;receivedFile=null;
         resetRemoteVersionCheck();
         resetVideoSettings();
         previewCapture=previews.begin(serverKey(),id);previewCopying=false;previewAttempts=0;
-        connectedRemote=id;pendingPassword=rememberPassword?secret:"";ready=false;muted=false;selectedDisplay=0;hostPlatform="";remoteClipboard="";displays=new JSONArray();preferences.edit().putString("lastRemote",id).apply();
+        connectedRemote=id;pendingPassword=rememberPassword?secret:"";ready=false;muted=false;selectedDisplay=0;hostPlatform="";remoteClipboard="";lastSyncedClip="";displays=new JSONArray();preferences.edit().putString("lastRemote",id).apply();
         if (!id.contains(":")) {
             ensureSignaling();
             if(signaling==null){pendingPassword="";toast(L10n.tr("请先完成联网授权"));return;}
@@ -514,8 +521,8 @@ public final class MainActivity extends Activity implements NativeSession.Listen
     }
     private void showProgress(){
         Dialog dialog=new Dialog(this);progressDialog=dialog;LinearLayout card=column();ui.card(card,24);card.setGravity(Gravity.CENTER_HORIZONTAL);LinearLayout body=column();body.setGravity(Gravity.CENTER);body.setPadding(dp(26),dp(24),dp(26),dp(20));
-        ProgressBar spinner=new ProgressBar(this);spinner.setIndeterminateTintList(ColorStateList.valueOf(BLUE));body.addView(spinner,ui.size(34,34));ui.gap(body,14);TextView title=text(L10n.tr("正在连接"),20,true);title.setGravity(Gravity.CENTER);body.addView(title);ui.gap(body,6);status=text(L10n.tr(connectedRemote.contains(":") ? "正在建立安全连接…" : "正在连接信令服务器…"),14,false);status.setGravity(Gravity.CENTER);status.setTextColor(SECONDARY);status.setMinHeight(dp(36));body.addView(status);card.addView(body,ui.size(-1,-2));ui.divider(card);card.addView(ui.action(L10n.tr("取消连接"),RED,()->end("")),ui.size(-1,46));
-        dialog.setContentView(card);dialog.setCanceledOnTouchOutside(false);dialog.setOnCancelListener(d->end(""));Window w=dialog.getWindow();if(w!=null){w.setBackgroundDrawableResource(android.R.color.transparent);w.setDimAmount(.08f);}dialog.show();if(w!=null)w.setLayout(dp(292),-2);
+        ProgressBar spinner=new ProgressBar(this);spinner.setIndeterminateTintList(ColorStateList.valueOf(BLUE));body.addView(spinner,ui.size(34,34));ui.gap(body,14);TextView title=text(L10n.tr("正在连接"),20,true);title.setGravity(Gravity.CENTER);body.addView(title);ui.gap(body,6);status=text(L10n.tr(connectedRemote.contains(":") ? "正在建立安全连接…" : "正在连接信令服务器…"),14,false);status.setGravity(Gravity.CENTER);status.setTextColor(SECONDARY);status.setMinHeight(dp(36));body.addView(status);card.addView(body,ui.size(-1,-2));ui.divider(card);card.addView(ui.action(L10n.tr("取消连接"),RED,()->{manualDisconnect=true;end("");}),ui.size(-1,46));
+        dialog.setContentView(card);dialog.setCanceledOnTouchOutside(false);dialog.setOnCancelListener(d->{manualDisconnect=true;end("");});Window w=dialog.getWindow();if(w!=null){w.setBackgroundDrawableResource(android.R.color.transparent);w.setDimAmount(.08f);}dialog.show();if(w!=null)w.setLayout(dp(292),-2);
     }
     private void sessionScreen(boolean autoLandscape){
         installRoot("session",true);remoteOrientation.begin(autoLandscape,!isTablet()&&!isInMultiWindowMode());video=new RemoteVideoView(this,session);video.setRelative(preferences.getBoolean("relativeMouse",true));
@@ -525,6 +532,7 @@ public final class MainActivity extends Activity implements NativeSession.Listen
         controls=new SessionControls(this,ui,video::setKeyboardInset,new SessionControls.Actions(){
             public void disconnect(){confirmDisconnect();}public void display(){selectDisplay();}public void clipboard(){MainActivity.this.clipboard();}
             public void sendFile(){chooseFile();}public void saveFile(){saveReceivedFile();}public void secureAttention(){MainActivity.this.secureAttention();}
+            public void lockWorkstation(){if(ready&&session!=null)session.lockWorkstation();}
             public void togglePrivacy(){if(ready&&session!=null)session.togglePrivacy();}
             public void showDesktop(){if(ready&&session!=null)session.chord(68,new int[]{0x5B});}
             public void showAllWindows(){if(ready&&session!=null)session.chord(9,new int[]{0x5B});}
@@ -547,8 +555,13 @@ public final class MainActivity extends Activity implements NativeSession.Listen
         });
         pictureInPicture.connected();updatePictureInPicture();
     }
-    private void confirmDisconnect(){disconnectDialog=new AlertDialog.Builder(this).setTitle(L10n.tr("断开远程连接？")).setMessage(L10n.tr("断开后将返回首页")).setNegativeButton(L10n.tr("取消"),null).setPositiveButton(L10n.tr("断开连接"),(d,w)->end("")).show();}
+    private void confirmDisconnect(){disconnectDialog=new AlertDialog.Builder(this).setTitle(L10n.tr("断开远程连接？")).setMessage(L10n.tr("断开后将返回首页")).setNegativeButton(L10n.tr("取消"),null).setPositiveButton(L10n.tr("断开连接"),(d,w)->{manualDisconnect=true;end("");}).show();}
+    private void cancelReconnect(){
+        reconnecting=false;
+        if(reconnectRunnable!=null){mainHandler.removeCallbacks(reconnectRunnable);reconnectRunnable=null;}
+    }
     private void end(String reason){
+        cancelReconnect();
         dismissPrivacyUnlockDialog();
         remoteOrientation.end();
         if(backgroundSession!=null){BackgroundSession retained=backgroundSession;backgroundSession=null;retained.detach(this);retained.finish(reason);}
@@ -562,7 +575,7 @@ public final class MainActivity extends Activity implements NativeSession.Listen
         if(progressDialog!=null){progressDialog.dismiss();progressDialog=null;}
         if(session!=null){releaseKeys();session.close();session=null;}
         if(!foreground)stopSignaling();
-        pendingPassword="";remoteClipboard="";hostPlatform="";displays=new JSONArray();ready=false;video=null;controls=null;getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        pendingPassword="";activeSecret="";reconnectTarget="";reconnectAttempts=0;remoteClipboard="";lastSyncedClip="";hostPlatform="";displays=new JSONArray();ready=false;video=null;controls=null;getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         if(closeWindow){finish();return;}
         home(reason);
         appUpdates.checkNow();
@@ -576,6 +589,9 @@ public final class MainActivity extends Activity implements NativeSession.Listen
         LinearLayout direction=section(content,L10n.tr("屏幕方向"),MobileUi.SETTINGS_CARD_RADIUS);LinearLayout directionRow=row();directionRow.setPadding(dp(16),dp(10),dp(16),dp(10));directionRow.addView(text(L10n.tr("连接建立后锁定横屏"),16,false),new LinearLayout.LayoutParams(0,-2,1));
         Switch autoLandscape=new Switch(this);autoLandscape.setContentDescription(L10n.tr("连接建立后锁定横屏"));autoLandscape.setChecked(preferences.getBoolean("autoLandscape",false));autoLandscape.setOnCheckedChangeListener((button,checked)->preferences.edit().putBoolean("autoLandscape",checked).apply());directionRow.addView(autoLandscape);direction.addView(directionRow);
         footer(content,L10n.tr("默认关闭。开启后，手机连接时进入并保持横屏；关闭时跟随设备方向。平板和多窗口不受影响。"));
+        LinearLayout clipCard=section(content,L10n.tr("剪贴板同步"),MobileUi.SETTINGS_CARD_RADIUS);LinearLayout clipRow=row();clipRow.setPadding(dp(16),dp(10),dp(16),dp(10));clipRow.addView(text(L10n.tr("自动双向同步剪贴板"),16,false),new LinearLayout.LayoutParams(0,-2,1));
+        Switch autoClip=new Switch(this);autoClip.setContentDescription(L10n.tr("自动双向同步剪贴板"));autoClip.setChecked(preferences.getBoolean("autoClipboard",true));autoClip.setOnCheckedChangeListener((button,checked)->preferences.edit().putBoolean("autoClipboard",checked).apply());clipRow.addView(autoClip);clipCard.addView(clipRow);
+        footer(content,L10n.tr("默认开启。切回远程窗口时自动推送手机剪贴板，收到电脑剪贴板时自动写入本机。"));
         LinearLayout server=section(content,"",MobileUi.SETTINGS_CARD_RADIUS);LinearLayout fields=column();fields.setVisibility(View.GONE);boolean custom=!host.equals("api.crossdesk.cn")||port!=9099;
         link(server,L10n.tr("服务器"),custom?L10n.tr("自定义"):L10n.tr("默认"),()->fields.setVisibility(fields.getVisibility()==View.VISIBLE?View.GONE:View.VISIBLE));server.addView(fields);
         LinearLayout toggleRow=row();toggleRow.setPadding(dp(16),dp(8),dp(16),dp(8));toggleRow.addView(text(L10n.tr("使用自定义服务器"),16,false),new LinearLayout.LayoutParams(0,-2,1));Switch toggle=new Switch(this);toggle.setContentDescription(L10n.tr("使用自定义服务器"));toggle.setChecked(custom);toggleRow.addView(toggle);fields.addView(toggleRow);
@@ -884,14 +900,42 @@ public final class MainActivity extends Activity implements NativeSession.Listen
     @Override public void connected(){
         // Transport readiness can be reported again after ICE changes its selected path.
         // The first success consumes pendingPassword; a duplicate must not save it again.
-        if(session==null||ready)return;ready=true;if(progressDialog!=null){progressDialog.dismiss();progressDialog=null;}
+        if(session==null||ready)return;ready=true;reconnectAttempts=0;if(progressDialog!=null){progressDialog.dismiss();progressDialog=null;}
         try{history.save(serverKey(),connectedRemote,connectedRemote,hostPlatform,rememberPassword,pendingPassword);}catch(Exception error){toast(L10n.tr("密码保存失败，本次连接仍可使用"));}pendingPassword="";sessionScreen(preferences.getBoolean("autoLandscape",false));
         if(!canUsePictureInPicture())prepareBackgroundSession(true);
         if(videoSettings.supported&&videoSettings.requestId==0)updateVideoSettings(videoSettings.selection);
         if(foreground&&preferences.getBoolean("networkConsent",false))remoteVersionCheck.connected();
+        syncLocalClipboardIfNeeded();
     }
     @Override public void ended(String reason){
-        if(session!=null)end(reason);
+        if(session==null)return;
+        boolean canReconnect=!manualDisconnect&&foreground&&!isFinishing()&&!isDestroyed()&&!isInPictureInPictureMode()
+            &&(ready||reconnectAttempts>0)&&!reconnectTarget.isEmpty()&&!activeSecret.isEmpty()&&reconnectAttempts<3;
+        if(canReconnect){
+            scheduleReconnect();
+            return;
+        }
+        end(reason);
+    }
+    private void scheduleReconnect(){
+        reconnectAttempts++;
+        reconnecting=true;
+        String targetId=reconnectTarget;
+        String secret=activeSecret;
+        if(session!=null){releaseKeys();session.close();session=null;}
+        ready=false;
+        if(progressDialog!=null){progressDialog.dismiss();progressDialog=null;}
+        showProgress();
+        if(status!=null)status.setText(L10n.tr("网络波动，正在自动重连")+" ("+reconnectAttempts+"/3)…");
+        int delay=reconnectAttempts==1?1500:(reconnectAttempts==2?3000:5000);
+        reconnectRunnable=()->{
+            reconnectRunnable=null;
+            if(!reconnecting||manualDisconnect||isFinishing()||isDestroyed()){end("");return;}
+            reconnecting=false;
+            begin(targetId,secret);
+            reconnectAttempts=Math.min(3,reconnectAttempts);
+        };
+        mainHandler.postDelayed(reconnectRunnable,delay);
     }
     @Override public void signalingEnded(String reason){
         stopSignaling();signalError=reason;renderSignaling();
@@ -899,6 +943,7 @@ public final class MainActivity extends Activity implements NativeSession.Listen
     }
     @Override public void passwordRejected(){
         if(session==null)return;
+        manualDisconnect=true;
         String id=connectedRemote;boolean remember=rememberPassword;
         end("");
         // Let the user replace an expired credential; never retry it automatically.
@@ -1000,7 +1045,39 @@ public final class MainActivity extends Activity implements NativeSession.Listen
             session.privacyScreen.canLock(android.os.SystemClock.elapsedRealtime()));
     }
     @Override public void videoSize(int width,int height){videoWidth=width;videoHeight=height;if(video!=null)video.videoSize(width,height);if(controls!=null)controls.videoSize(width,height);pictureInPicture.videoSize(width,height);updatePictureInPicture();}
-    @Override public void clipboard(String value){remoteClipboard=value;}
+    @Override public void clipboard(String value){
+        remoteClipboard=value==null?"":value;
+        if(!preferences.getBoolean("autoClipboard",true)||!foreground||remoteClipboard.isEmpty()||remoteClipboard.equals(lastSyncedClip))return;
+        ClipboardManager cm=getSystemService(ClipboardManager.class);
+        if(cm!=null){
+            try{
+                lastSyncedClip=remoteClipboard;
+                cm.setPrimaryClip(ClipData.newPlainText("CrossDesk",remoteClipboard));
+                toast(L10n.tr("已同步电脑剪贴板"));
+            }catch(Exception ignored){}
+        }
+    }
+    private void syncLocalClipboardIfNeeded(){
+        if(!ready||session==null||!foreground||!preferences.getBoolean("autoClipboard",true))return;
+        mainHandler.postDelayed(()->{
+            NativeSession target=session;
+            if(!ready||target==null||target.isClosed()||!hasWindowFocus())return;
+            ClipboardManager cm=getSystemService(ClipboardManager.class);
+            if(cm==null)return;
+            try{
+                ClipData clip=cm.getPrimaryClip();
+                if(clip==null||clip.getItemCount()==0)return;
+                CharSequence cs=clip.getItemAt(0).getText();
+                if(TextUtils.isEmpty(cs))return;
+                String text=cs.toString();
+                if(text.equals(lastSyncedClip)||text.indexOf('\0')>=0)return;
+                byte[] bytes=text.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                if(bytes.length==0||bytes.length>NativeSession.MAX_CLIPBOARD_BYTES)return;
+                lastSyncedClip=text;
+                target.sendClipboardSilent(bytes);
+            }catch(Exception ignored){}
+        },150);
+    }
     @Override public void statistics(RemoteNetworkStatistics.Snapshot value){if(controls!=null)controls.statistics(value);if(value.fps>0)capturePreviewIfNeeded();}
     @Override public boolean dispatchKeyEvent(KeyEvent event){
         if (privacyUnlockDialog != null) return super.dispatchKeyEvent(event);
@@ -1018,7 +1095,7 @@ public final class MainActivity extends Activity implements NativeSession.Listen
     private void releaseKeys(){if(session!=null)for(int code:pressed)session.key(code,false);pressed.clear();}
     private void navigateBack(){if(backAction==null)return;navigatingBack=true;try{backAction.run();}finally{navigatingBack=false;}}
     private void back(){if(controls!=null&&controls.closeKeyboard())return;pageHost.finish();if(session!=null){if(ready)confirmDisconnect();else end("");}else if(backAction!=null)navigateBack();else finish();}
-    @Override public void onWindowFocusChanged(boolean focus){super.onWindowFocusChanged(focus);if(!focus)releaseKeys();else applySystemBars();}
+    @Override public void onWindowFocusChanged(boolean focus){super.onWindowFocusChanged(focus);if(!focus)releaseKeys();else{applySystemBars();syncLocalClipboardIfNeeded();}}
     @Override public void onMultiWindowModeChanged(boolean multiWindow, Configuration config) {
         super.onMultiWindowModeChanged(multiWindow, config);
         applySystemBars();
