@@ -267,7 +267,8 @@ final class SessionControls extends FrameLayout {
         menu.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
         LinearLayout header=ui.row();
         if(!page.equals("controls"))header.addView(ui.iconButton("back",L10n.tr("返回控制栏"),()->openMenu("controls")),ui.size(28,32));
-        TextView title=ui.text(page.equals("controls")?L10n.tr("●  已连接"):page.equals("video")?L10n.tr("画面设置"):L10n.tr("网络状态"),14,true);
+        String titleText=page.equals("controls")?L10n.tr("●  已连接")+" · b"+buildCode():page.equals("video")?L10n.tr("画面设置"):L10n.tr("网络状态");
+        TextView title=ui.text(titleText,14,true);
         header.addView(title,new LinearLayout.LayoutParams(0,-2,1));header.addView(ui.iconButton("close",L10n.tr("关闭控制栏"),this::closeMenu),ui.size(30,32));menu.addView(header);ui.gap(menu,9);
         if(page.equals("video")){videoFeedback=ui.text("",12,false);videoFeedback.setTextColor(SECONDARY);videoFeedback.setPadding(0,0,0,ui.dp(9));menu.addView(videoFeedback);}
         ScrollView scroll=new ScrollView(getContext());menuScroll=scroll;menu.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));LinearLayout body=ui.column();scroll.addView(body);
@@ -291,8 +292,20 @@ final class SessionControls extends FrameLayout {
                     LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,ui.dp(52),1);if(col>0)p.leftMargin=ui.dp(7);line.addView(control,p);
                 }body.addView(line);if((row+1)*menuColumns<controlCount)ui.gap(body,7);}
             ui.gap(body,8);
-            SegmentedControl pointerMode=new SegmentedControl(ui,new String[]{L10n.tr("屏幕触控"),L10n.tr("鼠标指针")},relative?1:0,true,index->actions.setRelativeMode(index==1));
-            body.addView(pointerMode,ui.size(-1,36));
+            LinearLayout modeBar=ui.row();
+            android.graphics.drawable.GradientDrawable modeShell=ui.background(MobileUi.BACKGROUND,10);
+            modeShell.setStroke(ui.dp(.5f),LINE);
+            modeBar.setBackground(modeShell);
+            modeBar.setPadding(ui.dp(3),ui.dp(3),ui.dp(3),ui.dp(3));
+            TextView touchBtn=ui.action(L10n.tr("屏幕触控"),!relative?Color.WHITE:INK,()->actions.setRelativeMode(false));
+            touchBtn.setTextSize(13);touchBtn.setMinHeight(ui.dp(34));
+            if(!relative)touchBtn.setBackground(ui.background(BLUE,8));
+            TextView cursorBtn=ui.action(L10n.tr("鼠标指针"),relative?Color.WHITE:INK,()->actions.setRelativeMode(true));
+            cursorBtn.setTextSize(13);cursorBtn.setMinHeight(ui.dp(34));
+            if(relative)cursorBtn.setBackground(ui.background(BLUE,8));
+            modeBar.addView(touchBtn,new LinearLayout.LayoutParams(0,ui.dp(34),1));
+            modeBar.addView(cursorBtn,new LinearLayout.LayoutParams(0,ui.dp(34),1));
+            body.addView(modeBar,ui.size(-1,40));
             privacyFeedback=ui.text("",11,false);privacyFeedback.setTextColor(SECONDARY);privacyFeedback.setPadding(0,ui.dp(7),0,0);privacyFeedback.setAccessibilityLiveRegion(ACCESSIBILITY_LIVE_REGION_POLITE);body.addView(privacyFeedback);renderPrivacy();
             ui.gap(body,7);transferLabel=ui.text(transferStatus,11,false);transferLabel.setTextColor(SECONDARY);transferLabel.setAccessibilityLiveRegion(ACCESSIBILITY_LIVE_REGION_POLITE);body.addView(transferLabel);
             saveFileButton=ui.action(L10n.tr("保存收到的文件"),BLUE,actions::saveFile);body.addView(saveFileButton);renderFileStatus();
@@ -308,6 +321,10 @@ final class SessionControls extends FrameLayout {
         }
         ui.gap(menu,9);TextView disconnect=ui.action(L10n.tr("断开连接"),Color.WHITE,()->{closeMenu();closeKeyboard();actions.disconnect();});disconnect.setMinHeight(ui.dp(34));disconnect.setTextSize(14);disconnect.setBackground(ui.background(RED,8));menu.addView(disconnect,ui.size(-1,34));
         addView(menu,new LayoutParams(panelWidth(getWidth()),panelHeight(getHeight())));orb.bringToFront();orb.setContentDescription(L10n.tr("收起远程控制菜单"));
+    }
+    private long buildCode(){
+        try{return getContext().getPackageManager().getPackageInfo(getContext().getPackageName(),0).getLongVersionCode();}
+        catch(Exception ignored){return 0;}
     }
     private void renderPrivacy(){
         if(menu!=null&&menuPage.equals("controls")&&(privacyButton!=null)!=privacy.desktopAvailable){

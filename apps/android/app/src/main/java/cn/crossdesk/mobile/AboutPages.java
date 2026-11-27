@@ -27,7 +27,7 @@ final class AboutPages {
     }
     void show(){
         LinearLayout content=activity.formPage("about",L10n.tr("关于 CrossDesk"),settings);
-        LinearLayout version=activity.section(content,"");value(version,L10n.tr("版本"),applicationVersion());
+        LinearLayout version=activity.section(content,"");value(version,L10n.tr("版本"),displayVersion());
         updateRow=ui.row();updateRow.setPadding(ui.dp(16),0,ui.dp(16),0);updateRow.addView(activity.updateDot(),ui.size(8,8));
         updateLink=ui.action("",BLUE,()->open("https://crossdesk.cn"));updateLink.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);updateLink.setPadding(ui.dp(8),ui.dp(12),0,ui.dp(12));updateRow.addView(updateLink,new LinearLayout.LayoutParams(0,-2,1));version.addView(updateRow);
         updateStatus=ui.text("",13,false);updateStatus.setPadding(ui.dp(16),ui.dp(8),ui.dp(16),ui.dp(8));version.addView(updateStatus);
@@ -41,6 +41,12 @@ final class AboutPages {
     }
     private String applicationVersion(){
         return activity.applicationVersion();
+    }
+    private String displayVersion(){
+        try{
+            long code=activity.getPackageManager().getPackageInfo(activity.getPackageName(),0).getLongVersionCode();
+            return applicationVersion()+" (b"+code+")";
+        }catch(Exception ignored){return applicationVersion();}
     }
     void renderUpdates(){
         if(updateStatus==null)return;

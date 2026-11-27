@@ -543,7 +543,7 @@ public final class MainActivity extends Activity implements NativeSession.Listen
             public void chord(int code,int[] modifiers){if(ready&&session!=null)session.chord(code,modifiers);}public void shortcut(int code){MainActivity.this.shortcut(code);}public void text(String value){sendText(value);}
             public void mute(){muted=!muted;if(session!=null)session.control(2,muted?0:1);controls.setMuted(muted);}
             public void mouse(){setRelativeMode(!preferences.getBoolean("relativeMouse",true));}
-            public void setRelativeMode(boolean relative){preferences.edit().putBoolean("relativeMouse",relative).apply();if(video!=null)video.setRelative(relative);if(controls!=null)controls.setRelative(relative);}
+            public void setRelativeMode(boolean relative){preferences.edit().putBoolean("relativeMouse",relative).apply();if(video!=null)video.setRelative(relative);if(controls!=null)controls.setRelative(relative);toast(L10n.tr(relative?"已切换为鼠标指针":"已切换为屏幕触控"));}
             public void toggleViewOnly(){viewOnly=!viewOnly;if(video!=null)video.setViewOnly(viewOnly);if(controls!=null)controls.setViewOnly(viewOnly);toast(L10n.tr(viewOnly?"已开启仅观看模式":"已恢复触控操作"));}
             public void displayResolution(RemoteDisplayResolutions.Mode mode){updateDisplayResolution(mode);}
             public void videoSettings(int field,int value){RemoteVideoSettings.Values old=MainActivity.this.videoSettings.selection;updateVideoSettings(new RemoteVideoSettings.Values(field==0?value:old.quality,field==1?value:old.frameRate,field==2?value:old.preference));}

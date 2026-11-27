@@ -219,8 +219,12 @@ jobs:
           base_code = int(os.environ.get("ANDROID_VERSION_CODE", "5"))
           run_num = int(os.environ.get("GITHUB_RUN_NUMBER", "1"))
           new_code = base_code + run_num
+          ver_name = os.environ.get("ANDROID_VERSION_NAME", "1.7.7")
+          art_ver = os.environ.get("ANDROID_ARTIFACT_VERSION", "")
+          date_part = art_ver.rsplit("-", 1)[-1] if "-" in art_ver else "build"
           with open(os.environ["GITHUB_ENV"], "a") as stream:
               stream.write(f"ANDROID_VERSION_CODE={new_code}\n")
+              stream.write(f"ANDROID_ARTIFACT_VERSION=v{ver_name}-b{new_code}-{date_part}\n")
 
       - name: Restore persistent debug keystore
         uses: actions/cache@v5
