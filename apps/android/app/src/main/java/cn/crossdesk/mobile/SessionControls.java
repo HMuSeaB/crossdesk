@@ -291,7 +291,7 @@ final class SessionControls extends FrameLayout {
                     LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,ui.dp(52),1);if(col>0)p.leftMargin=ui.dp(7);line.addView(control,p);
                 }body.addView(line);if((row+1)*menuColumns<controlCount)ui.gap(body,7);}
             ui.gap(body,8);
-            SegmentedControl pointerMode=new SegmentedControl(getContext(),ui,new String[]{L10n.tr("屏幕触控"),L10n.tr("鼠标指针")},relative?1:0,false,index->actions.setRelativeMode(index==1));
+            SegmentedControl pointerMode=new SegmentedControl(ui,new String[]{L10n.tr("屏幕触控"),L10n.tr("鼠标指针")},relative?1:0,false,index->actions.setRelativeMode(index==1));
             body.addView(pointerMode,ui.size(-1,36));
             privacyFeedback=ui.text("",11,false);privacyFeedback.setTextColor(SECONDARY);privacyFeedback.setPadding(0,ui.dp(7),0,0);privacyFeedback.setAccessibilityLiveRegion(ACCESSIBILITY_LIVE_REGION_POLITE);body.addView(privacyFeedback);renderPrivacy();
             ui.gap(body,7);transferLabel=ui.text(transferStatus,11,false);transferLabel.setTextColor(SECONDARY);transferLabel.setAccessibilityLiveRegion(ACCESSIBILITY_LIVE_REGION_POLITE);body.addView(transferLabel);
