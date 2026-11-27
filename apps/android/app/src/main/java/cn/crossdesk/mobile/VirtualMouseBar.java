@@ -42,7 +42,11 @@ final class VirtualMouseBar extends LinearLayout {
 
         LinearLayout header = ui.row();
         dragHandle = new FrameLayout(ui.context);
-        dragHandle.setContentDescription(L10n.tr("拖动虚拟鼠标"));
+        dragHandle.setContentDescription(L10n.tr("拖动虚拟鼠标并移动指针"));
+        TextView pointerHint = ui.text("↖", 12, true);
+        pointerHint.setTextColor(MobileUi.BLUE);
+        pointerHint.setGravity(Gravity.CENTER);
+        dragHandle.addView(pointerHint, new FrameLayout.LayoutParams(ui.dp(22), ui.dp(22), Gravity.START | Gravity.CENTER_VERTICAL));
         View grip = new View(ui.context);
         grip.setBackground(ui.background(MobileUi.SECONDARY, 2));
         dragHandle.addView(grip, new FrameLayout.LayoutParams(ui.dp(28), ui.dp(3), Gravity.CENTER));

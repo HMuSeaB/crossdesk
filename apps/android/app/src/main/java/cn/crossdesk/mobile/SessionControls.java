@@ -19,6 +19,7 @@ final class SessionControls extends FrameLayout {
         void sendFile(); void saveFile(); void secureAttention();
         default void lockWorkstation() { }
         default void setRelativeMode(boolean relative) { }
+        default void moveCursorTo(float x, float y) { }
         default void toggleViewOnly() { }
         default void togglePrivacy() { }
         default void showDesktop() { }
@@ -493,6 +494,9 @@ final class SessionControls extends FrameLayout {
                         } else {
                             mouseX = x; mouseY = y;
                             positionMouse();
+                            if (target == mouseBar && handle == mouseBar.dragHandle && !mouseBar.isCollapsed()) {
+                                actions.moveCursorTo(x + ui.dp(2), y + ui.dp(2));
+                            }
                         }
                         break;
                     case MotionEvent.ACTION_POINTER_UP:
