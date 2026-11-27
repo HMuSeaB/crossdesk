@@ -14,6 +14,7 @@ import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.InsetDrawable;
+import android.net.Uri;
 import android.os.Bundle;
 import android.text.*;
 import android.text.method.PasswordTransformationMethod;
@@ -22,10 +23,15 @@ import android.view.inputmethod.InputMethodManager;
 import android.widget.*;
 import org.json.JSONArray;
 import org.json.JSONObject;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import static cn.crossdesk.mobile.MobileUi.*;
 
@@ -95,7 +101,11 @@ public final class MainActivity extends Activity implements NativeSession.Listen
     private JSONArray displays=new JSONArray();
     private boolean muted,ready,rememberPassword,viewOnly;
     private boolean remoteServiceAvailable;
-    private static final int PICK_FILE=41,SAVE_FILE=42;
+    private static final int PICK_FILE=41,SAVE_FILE=42,EXPORT_CONFIG=43,IMPORT_CONFIG=44;
+    private final ExecutorService backupExecutor=Executors.newSingleThreadExecutor(r->new Thread(r,"CrossDesk backup"));
+    private String pendingBackupPassphrase="";
+    private boolean backupBusy;
+    private AlertDialog backupDialog;
     private NativeSession documentSession;
     private java.io.File receivedFile,documentToSave;
     private final Runnable documentTimeout=()->{if(documentSession!=null&&!foreground)end(L10n.tr("文件选择已超时，会话已结束"));};
@@ -610,6 +620,10 @@ public final class MainActivity extends Activity implements NativeSession.Listen
         previewSwitch.setOnCheckedChangeListener((button,checked)->{if(updatingPreviewSwitch)return;if(checked){renderPreviews();confirmPreviewSaving();}else previews.setEnabled(false);});
         ui.divider(privacy);clearPreviewsButton=ui.action(L10n.tr("清除预览图"),RED,this::confirmClearPreviews);clearPreviewsButton.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);clearPreviewsButton.setTypeface(Typeface.DEFAULT);clearPreviewsButton.setPadding(dp(16),0,dp(16),0);privacy.addView(clearPreviewsButton,ui.size(-1,48));
         previewCleanupError=text("",12,false);previewCleanupError.setTextColor(RED);previewCleanupError.setPadding(dp(16),dp(8),dp(16),dp(12));privacy.addView(previewCleanupError);renderPreviews();
+        ui.gap(content,28);LinearLayout backup=section(content,L10n.tr("备份与恢复"),MobileUi.SETTINGS_CARD_RADIUS);
+        link(backup,L10n.tr("导出配置"),L10n.tr("加密备份"),this::promptExportConfig);
+        ui.divider(backup);
+        link(backup,L10n.tr("导入配置"),L10n.tr("从文件恢复"),this::launchImportConfig);
         ui.gap(content,28);LinearLayout about=section(content,"",MobileUi.SETTINGS_CARD_RADIUS);LinearLayout aboutLink=link(about,L10n.tr("关于"),L10n.tr("新版本"),this::about);aboutUpdateRow=aboutLink;
         aboutUpdateLabel=(TextView)aboutLink.getChildAt(1);aboutUpdateLabel.setPadding(0,0,dp(8),0);
         aboutUpdateDot=updateDot();LinearLayout.LayoutParams dotPosition=new LinearLayout.LayoutParams(dp(8),dp(8));dotPosition.setMarginEnd(dp(8));aboutLink.addView(aboutUpdateDot,2,dotPosition);renderAppUpdates();
@@ -780,12 +794,167 @@ public final class MainActivity extends Activity implements NativeSession.Listen
     }
     @Override protected void onActivityResult(int request,int result,Intent data){
         super.onActivityResult(request,result,data);
+        if(request==EXPORT_CONFIG){
+            String passphrase=pendingBackupPassphrase;
+            pendingBackupPassphrase="";
+            if(result!=RESULT_OK||data==null||data.getData()==null||passphrase.isEmpty())return;
+            performConfigExport(data.getData(),passphrase);
+            return;
+        }
+        if(request==IMPORT_CONFIG){
+            pendingBackupPassphrase="";
+            if(result!=RESULT_OK||data==null||data.getData()==null)return;
+            promptImportPassphrase(data.getData());
+            return;
+        }
         if(request!=PICK_FILE&&request!=SAVE_FILE)return;
         NativeSession source=documentSession;java.io.File saved=documentToSave;
         documentSession=null;documentToSave=null;mainHandler.removeCallbacks(documentTimeout);
         pictureInPicture.choosingDocument(false);updatePictureInPicture();
         if(source==null||source!=session||!ready||result!=RESULT_OK||data==null||data.getData()==null)return;
         if(request==PICK_FILE)source.sendFile(data.getData());else if(saved!=null)source.saveFile(saved,data.getData());
+    }
+    private void dismissBackupDialog(){
+        if(backupDialog!=null){backupDialog.dismiss();backupDialog=null;}
+    }
+    private void promptExportConfig(){
+        if(backupBusy){toast(L10n.tr("正在处理配置备份，请稍候"));return;}
+        dismissBackupDialog();
+        LinearLayout box=column();box.setPadding(dp(20),dp(12),dp(20),0);
+        TextView tip=text(L10n.tr("将加密备份服务器配置、最近连接、已保存密码、锁屏密码与快捷键。"),13,false);
+        tip.setTextColor(SECONDARY);box.addView(tip);ui.gap(box,12);
+        EditText passInput=field(L10n.tr("输入备份口令（至少 4 位）"),InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        box.addView(passInput,ui.size(-1,48));ui.gap(box,10);
+        EditText confirmInput=field(L10n.tr("再次确认备份口令"),InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        box.addView(confirmInput,ui.size(-1,48));
+        AlertDialog dialog=new AlertDialog.Builder(this)
+                .setTitle(L10n.tr("导出配置"))
+                .setView(box)
+                .setNegativeButton(L10n.tr("取消"),null)
+                .setPositiveButton(L10n.tr("下一步"),null)
+                .create();
+        backupDialog=dialog;
+        dialog.setOnDismissListener(d->{passInput.setText("");confirmInput.setText("");if(backupDialog==dialog)backupDialog=null;});
+        dialog.show();
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
+            String pass=passInput.getText().toString();
+            String confirm=confirmInput.getText().toString();
+            if(pass.length()<4){passInput.setError(L10n.tr("口令长度至少为 4 位"));passInput.requestFocus();return;}
+            if(!pass.equals(confirm)){confirmInput.setError(L10n.tr("两次输入的口令不一致"));confirmInput.requestFocus();return;}
+            pendingBackupPassphrase=pass;
+            passInput.setText("");confirmInput.setText("");
+            dialog.dismiss();
+            String stamp=new SimpleDateFormat("yyyyMMdd",Locale.US).format(new Date());
+            Intent intent=new Intent(Intent.ACTION_CREATE_DOCUMENT)
+                    .addCategory(Intent.CATEGORY_OPENABLE)
+                    .setType("application/octet-stream")
+                    .putExtra(Intent.EXTRA_TITLE,"crossdesk-backup-"+stamp+".cdbak");
+            try{startActivityForResult(intent,EXPORT_CONFIG);}
+            catch(android.content.ActivityNotFoundException error){pendingBackupPassphrase="";toast(L10n.tr("此设备没有可用的文件选择器"));}
+        });
+    }
+    private void launchImportConfig(){
+        if(backupBusy){toast(L10n.tr("正在处理配置备份，请稍候"));return;}
+        Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT)
+                .addCategory(Intent.CATEGORY_OPENABLE)
+                .setType("*/*");
+        try{startActivityForResult(intent,IMPORT_CONFIG);}
+        catch(android.content.ActivityNotFoundException error){toast(L10n.tr("此设备没有可用的文件选择器"));}
+    }
+    private void promptImportPassphrase(Uri uri){
+        if(uri==null||isFinishing()||isDestroyed())return;
+        if(backupBusy){toast(L10n.tr("正在处理配置备份，请稍候"));return;}
+        dismissBackupDialog();
+        LinearLayout box=column();box.setPadding(dp(20),dp(12),dp(20),0);
+        TextView tip=text(L10n.tr("请输入导出该备份文件时设置的口令，恢复后将更新本机配置。"),13,false);
+        tip.setTextColor(SECONDARY);box.addView(tip);ui.gap(box,12);
+        EditText passInput=field(L10n.tr("输入备份口令"),InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        box.addView(passInput,ui.size(-1,48));
+        AlertDialog dialog=new AlertDialog.Builder(this)
+                .setTitle(L10n.tr("导入配置"))
+                .setView(box)
+                .setNegativeButton(L10n.tr("取消"),null)
+                .setPositiveButton(L10n.tr("导入"),null)
+                .create();
+        backupDialog=dialog;
+        dialog.setOnDismissListener(d->{passInput.setText("");if(backupDialog==dialog)backupDialog=null;});
+        dialog.show();
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
+            String pass=passInput.getText().toString();
+            if(pass.isEmpty()){passInput.setError(L10n.tr("请输入备份口令"));passInput.requestFocus();return;}
+            passInput.setText("");
+            dialog.dismiss();
+            performConfigImport(uri,pass);
+        });
+    }
+    private void performConfigExport(Uri uri,String passphrase){
+        if(backupBusy){toast(L10n.tr("正在处理配置备份，请稍候"));return;}
+        backupBusy=true;
+        final android.content.Context appContext=getApplicationContext();
+        backupExecutor.execute(()->{
+            try{
+                ConfigBackupManager.exportToUri(appContext,uri,passphrase);
+                mainHandler.post(()->{
+                    backupBusy=false;
+                    if(isFinishing()||isDestroyed())return;
+                    toast(L10n.tr("配置已加密导出"));
+                });
+            }catch(Exception error){
+                String msg=error.getMessage();
+                String display=(msg==null||msg.trim().isEmpty())?L10n.tr("导出配置失败"):msg;
+                mainHandler.post(()->{
+                    backupBusy=false;
+                    if(isFinishing()||isDestroyed())return;
+                    showBackupMessage(L10n.tr("导出失败"),display);
+                });
+            }
+        });
+    }
+    private void performConfigImport(Uri uri,String passphrase){
+        if(backupBusy){toast(L10n.tr("正在处理配置备份，请稍候"));return;}
+        backupBusy=true;
+        final android.content.Context appContext=getApplicationContext();
+        backupExecutor.execute(()->{
+            try{
+                ConfigBackupManager.RestoreSummary summary=ConfigBackupManager.importFromUri(appContext,uri,passphrase);
+                mainHandler.post(()->{
+                    backupBusy=false;
+                    if(isFinishing()||isDestroyed())return;
+                    host=preferences.getString("host","api.crossdesk.cn");
+                    port=preferences.getInt("port",9099);
+                    recentFilter=null;
+                    recentFilterServer=serverKey();
+                    ensureSignaling();
+                    recentPresence.watch(history.list(serverKey()),android.os.SystemClock.elapsedRealtime());
+                    if("settings".equals(page))settings();
+                    else if("home".equals(page))home("");
+                    showBackupMessage(L10n.tr("配置导入成功"),
+                            L10n.format("已恢复 {0} 台设备、{1} 条连接密码、{2} 条锁屏密码，当前服务器：{3}",
+                                    summary.deviceCount,summary.remotePasswordCount,
+                                    summary.lockPasswordCount,summary.serverEndpoint()));
+                });
+            }catch(Exception error){
+                String msg=error.getMessage();
+                String display=(msg==null||msg.trim().isEmpty())?L10n.tr("导入配置失败，请检查文件或口令"):msg;
+                mainHandler.post(()->{
+                    backupBusy=false;
+                    if(isFinishing()||isDestroyed())return;
+                    showBackupMessage(L10n.tr("导入失败"),display);
+                });
+            }
+        });
+    }
+    private void showBackupMessage(String title,String message){
+        if(isFinishing()||isDestroyed())return;
+        dismissBackupDialog();
+        AlertDialog dialog=new AlertDialog.Builder(this)
+                .setTitle(title)
+                .setMessage(message)
+                .setPositiveButton(L10n.tr("确定"),null)
+                .create();
+        backupDialog=dialog;
+        dialog.setOnDismissListener(d->{if(backupDialog==dialog)backupDialog=null;});
+        dialog.show();
     }
     @Override public void fileTransfer(String name,double progress,boolean sending,java.io.File received){
         if(!ready)return;
@@ -1236,7 +1405,7 @@ public final class MainActivity extends Activity implements NativeSession.Listen
             resetRemoteVersionCheck();if(disconnectDialog!=null)disconnectDialog.dismiss();
         }else if(documentSession==null||documentSession!=session||isFinishing()){if(session!=null)end(isFinishing()?"":L10n.tr("远程窗口已关闭，或后台保活未能启动，会话已结束"));stopSignaling();}
         super.onStop();}
-    @Override protected void onDestroy(){dismissPrivacyUnlockDialog();mainHandler.removeCallbacks(documentTimeout);documentSession=null;documentToSave=null;appUpdates.setEnabled(false);pageHost.finish();resetRemoteVersionCheck();cancelVideoSettingsTimeout();cancelDisplayResolutionTimeout();previews.removeListener(previewChanged);if(privacyDialog!=null)privacyDialog.dismiss();if(previewDialog!=null)previewDialog.dismiss();announcementInbox.close();if(disconnectDialog!=null)disconnectDialog.dismiss();if(passwordDialog!=null)passwordDialog.dismiss();if(progressDialog!=null)progressDialog.dismiss();
+    @Override protected void onDestroy(){pendingBackupPassphrase="";backupExecutor.shutdownNow();dismissBackupDialog();dismissPrivacyUnlockDialog();mainHandler.removeCallbacks(documentTimeout);documentSession=null;documentToSave=null;appUpdates.setEnabled(false);pageHost.finish();resetRemoteVersionCheck();cancelVideoSettingsTimeout();cancelDisplayResolutionTimeout();previews.removeListener(previewChanged);if(privacyDialog!=null)privacyDialog.dismiss();if(previewDialog!=null)previewDialog.dismiss();announcementInbox.close();if(disconnectDialog!=null)disconnectDialog.dismiss();if(passwordDialog!=null)passwordDialog.dismiss();if(progressDialog!=null)progressDialog.dismiss();
         if(connectionDialog!=null)connectionDialog.dismiss();
         boolean retained=!isFinishing()&&backgroundSession!=null&&!backgroundSession.ended&&RemoteSessionService.current()==backgroundSession;
         if(backgroundSession!=null){

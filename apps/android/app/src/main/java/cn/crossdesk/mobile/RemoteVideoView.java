@@ -11,6 +11,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.view.PixelCopy;
 import android.view.GestureDetector;
+import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
@@ -26,6 +27,7 @@ final class RemoteVideoView extends FrameLayout implements SurfaceHolder.Callbac
     final RemoteMouseInput mouseInput;
     Runnable remoteFocusChanged;
     private final GestureDetector gestures;
+    private final float touchSlop;
     private final float pinchSlop;
     private final RemoteViewport viewport = new RemoteViewport();
     private final RemoteViewport pictureInPictureViewport = new RemoteViewport();
@@ -37,9 +39,13 @@ final class RemoteVideoView extends FrameLayout implements SurfaceHolder.Callbac
     private float pinchSpan;
     private long touchRevision;
     private boolean suppressPointerGesture;
-    private long lastTapTime;
-    private float lastTapX, lastTapY, touchScrollRemainder;
-    private boolean doubleTapArmed;
+    private float touchScrollRemainder;
+    private boolean longPressArmed;
+    private float longPressStartX, longPressStartY;
+    private long twoFingerDownTime;
+    private float twoFingerStartX, twoFingerStartY;
+    private int twoFingerMaxCount;
+    private boolean twoFingerMoved;
     void setRelative(boolean value) { releaseMouse(); relative=value; }
     void setViewOnly(boolean value) {
         viewOnly = value;
@@ -53,7 +59,7 @@ final class RemoteVideoView extends FrameLayout implements SurfaceHolder.Callbac
     Rect pictureInPictureBounds() {
         Rect bounds=new Rect();video.getGlobalVisibleRect(bounds);return bounds;
     }
-    void releaseMouse() { mouseInput.releaseAll(); dragging=false; suppressPointerGesture=true; }
+    void releaseMouse() { mouseInput.releaseAll(); dragging=false; longPressArmed=false; suppressPointerGesture=true; }
     private boolean suppressPointerGesture() {
         return suppressPointerGesture || mouseInput.hasVirtualButton() || touchRevision != mouseInput.revision();
     }
@@ -70,25 +76,24 @@ final class RemoteVideoView extends FrameLayout implements SurfaceHolder.Callbac
         gestures = new GestureDetector(context, new GestureDetector.SimpleOnGestureListener() {
             @Override public boolean onDown(MotionEvent e) {
                 touchScrollRemainder = 0;
-                return viewOnly || doubleTapArmed || point(e);
+                return viewOnly || point(e);
             }
             @Override public boolean onSingleTapUp(MotionEvent e) {
                 if (!viewOnly && !twoFinger && !suppressPointerGesture() && point(e)) {
-                    lastTapTime = android.os.SystemClock.elapsedRealtime();
-                    lastTapX = e.getX();
-                    lastTapY = e.getY();
                     cursor.performClick();
                 }
                 return true;
             }
-            @Override public void onLongPress(MotionEvent e) { if (!viewOnly && !twoFinger && !dragging && !suppressPointerGesture() && point(e)) click(3, 4); }
+            @Override public void onLongPress(MotionEvent e) {
+                if (viewOnly || twoFinger || dragging || suppressPointerGesture()) return;
+                if (!usesRelativeMotion(e) && !point(e)) return;
+                longPressArmed = true;
+                longPressStartX = e.getX();
+                longPressStartY = e.getY();
+                performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+            }
             @Override public boolean onScroll(MotionEvent first, MotionEvent current, float dx, float dy) {
-                if (viewOnly || twoFinger) return true;
-                if (doubleTapArmed && !dragging && !suppressPointerGesture()) {
-                    if (!usesRelativeMotion(current) && !point(first)) return true;
-                    mouseInput.gestureLeft(true);
-                    dragging = true;
-                }
+                if (viewOnly || twoFinger || longPressArmed) return true;
                 if (dragging || usesRelativeMotion(current)) {
                     point(current);
                     return true;
@@ -108,8 +113,9 @@ final class RemoteVideoView extends FrameLayout implements SurfaceHolder.Callbac
         });
         // Let the remote desktop detect double-clicks; the default listener consumes the second tap.
         gestures.setOnDoubleTapListener(null);
+        touchSlop = ViewConfiguration.get(context).getScaledTouchSlop();
         // Detect a change in finger spacing even when the fingers start close together.
-        pinchSlop = ViewConfiguration.get(context).getScaledTouchSlop() * .5f;
+        pinchSlop = touchSlop * .5f;
         cursor.setOnGenericMotionListener((v, event) -> {
             if (viewOnly || !point(event)) return true;
             if (event.getActionMasked() == MotionEvent.ACTION_SCROLL) {
@@ -118,7 +124,7 @@ final class RemoteVideoView extends FrameLayout implements SurfaceHolder.Callbac
             }
             return true;
         });
-        setContentDescription(L10n.tr("远程桌面：轻触点击，拖动移动，长按右键，双指捏合缩放，放大后双指拖动画面，原始比例下双指上下滑动滚动"));
+        setContentDescription(L10n.tr("远程桌面：轻触点击，屏幕触控单指滑动滚轮翻页，长按微震后拖动左键拖拽、原地松手右键，双指轻点右键，双指捏合缩放，放大后双指拖动画面，原始比例下双指上下滑动滚动"));
     }
     void videoSize(int width, int height) {
         if (width <= 0 || height <= 0) return;
@@ -216,18 +222,31 @@ final class RemoteVideoView extends FrameLayout implements SurfaceHolder.Callbac
         int action = e.getActionMasked();
         if (action == MotionEvent.ACTION_DOWN) {
             twoFinger = pinching = viewportPanActive = false;
+            longPressArmed = false;
+            twoFingerMoved = false;
+            twoFingerMaxCount = 0;
+            twoFingerDownTime = 0;
             touchRevision = mouseInput.revision();
             suppressPointerGesture = mouseInput.hasVirtualButton();
-            long now = android.os.SystemClock.elapsedRealtime();
-            float slop = 36 * getResources().getDisplayMetrics().density;
-            doubleTapArmed = !viewOnly && (now - lastTapTime <= 320)
-                && Math.hypot(e.getX() - lastTapX, e.getY() - lastTapY) <= slop;
         }
         if (action == MotionEvent.ACTION_POINTER_DOWN) {
+            longPressArmed = false;
             if (dragging) { mouseInput.gestureLeft(false); dragging = false; }
-            twoFinger = true;
-            MotionEvent cancel = MotionEvent.obtain(e); cancel.setAction(MotionEvent.ACTION_CANCEL);
-            gestures.onTouchEvent(cancel); cancel.recycle();
+            if (!twoFinger) {
+                twoFinger = true;
+                twoFingerDownTime = android.os.SystemClock.elapsedRealtime();
+                twoFingerMaxCount = e.getPointerCount();
+                twoFingerMoved = twoFingerMaxCount > 2;
+                if (e.getPointerCount() >= 2) {
+                    twoFingerStartX = (e.getX(0) + e.getX(1)) * 0.5f;
+                    twoFingerStartY = (e.getY(0) + e.getY(1)) * 0.5f;
+                }
+                MotionEvent cancel = MotionEvent.obtain(e); cancel.setAction(MotionEvent.ACTION_CANCEL);
+                gestures.onTouchEvent(cancel); cancel.recycle();
+            } else {
+                twoFingerMaxCount = Math.max(twoFingerMaxCount, e.getPointerCount());
+                if (e.getPointerCount() > 2) twoFingerMoved = true;
+            }
         }
         if (twoFinger && e.getPointerCount() >= 2 && (action == MotionEvent.ACTION_MOVE ||
                 action == MotionEvent.ACTION_POINTER_DOWN || action == MotionEvent.ACTION_POINTER_UP)) {
@@ -236,12 +255,50 @@ final class RemoteVideoView extends FrameLayout implements SurfaceHolder.Callbac
             if ((e.getButtonState() & MotionEvent.BUTTON_SECONDARY) != 0 && action == MotionEvent.ACTION_DOWN) {
                 if (point(e)) click(3,4); return true;
             }
+            if (action == MotionEvent.ACTION_MOVE && longPressArmed) {
+                if (Math.hypot(e.getX() - longPressStartX, e.getY() - longPressStartY) >= touchSlop) {
+                    longPressArmed = false;
+                    if (!suppressPointerGesture()) {
+                        lastX = longPressStartX;
+                        lastY = longPressStartY;
+                        mouseInput.gestureLeft(true);
+                        dragging = true;
+                        point(e);
+                    }
+                }
+                return true;
+            }
+            if (action == MotionEvent.ACTION_MOVE && dragging) {
+                point(e);
+                return true;
+            }
+            if (action == MotionEvent.ACTION_UP && longPressArmed && !dragging && !suppressPointerGesture()) {
+                longPressArmed = false;
+                click(3, 4);
+            }
             gestures.onTouchEvent(e);
         }
         if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+            if (action == MotionEvent.ACTION_UP && twoFinger && !viewOnly && !suppressPointerGesture()
+                    && twoFingerMaxCount == 2 && !twoFingerMoved && !pinching && !viewportPanActive
+                    && (android.os.SystemClock.elapsedRealtime() - twoFingerDownTime <= 280)) {
+                if (!usesRelativeMotion(e)) {
+                    if (viewport.contains(twoFingerStartX, twoFingerStartY)) {
+                        x = viewport.normalizedX(twoFingerStartX);
+                        y = viewport.normalizedY(twoFingerStartY);
+                        mouseInput.move(x, y);
+                        click(3, 4);
+                    }
+                } else {
+                    click(3, 4);
+                }
+            }
             if (dragging) mouseInput.gestureLeft(false);
             dragging = false;
-            doubleTapArmed = false;
+            longPressArmed = false;
+            twoFinger = false;
+            twoFingerMoved = false;
+            twoFingerMaxCount = 0;
             viewport.finishGesture(); applyViewport();
             viewportPanActive = false;
         }
@@ -297,7 +354,12 @@ final class RemoteVideoView extends FrameLayout implements SurfaceHolder.Callbac
             if (Math.abs(delta) > 16 * getResources().getDisplayMetrics().density) {
                 session.pointer(x, y, 7, delta > 0 ? 1 : -1);
                 scrollY = focusY;
+                twoFingerMoved = true;
             }
+        }
+        if (pinching || viewportPanActive
+                || Math.hypot(focusX - twoFingerStartX, focusY - twoFingerStartY) > touchSlop * 1.5f) {
+            twoFingerMoved = true;
         }
     }
     @Override public boolean performClick() { super.performClick(); return true; }
