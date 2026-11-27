@@ -32,15 +32,20 @@ final class RemoteVideoView extends FrameLayout implements SurfaceHolder.Callbac
     private boolean pictureInPicture;
     private int frameWidth = 16, frameHeight = 9;
     private float x = .5f, y = .5f, scrollY;
-    private boolean dragging, twoFinger, relative, pinching, viewportPanActive;
+    private boolean dragging, twoFinger, relative, pinching, viewportPanActive, viewOnly;
     private float lastX,lastY,twoFingerX,twoFingerY;
     private float pinchSpan;
     private long touchRevision;
     private boolean suppressPointerGesture;
     void setRelative(boolean value) { releaseMouse(); relative=value; }
+    void setViewOnly(boolean value) {
+        viewOnly = value;
+        if (value) releaseMouse();
+        cursor.setVisibility((pictureInPicture || viewOnly) ? GONE : VISIBLE);
+    }
     void setPictureInPicture(boolean value) {
         if(pictureInPicture==value)return;
-        releaseMouse();pictureInPicture=value;cursor.setVisibility(value?GONE:VISIBLE);fit();
+        releaseMouse();pictureInPicture=value;cursor.setVisibility((value||viewOnly)?GONE:VISIBLE);fit();
     }
     Rect pictureInPictureBounds() {
         Rect bounds=new Rect();video.getGlobalVisibleRect(bounds);return bounds;
@@ -60,13 +65,13 @@ final class RemoteVideoView extends FrameLayout implements SurfaceHolder.Callbac
         // Keep input in container coordinates so transforms never move its hit area.
         addView(cursor, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT));
         gestures = new GestureDetector(context, new GestureDetector.SimpleOnGestureListener() {
-            @Override public boolean onDown(MotionEvent e) { return point(e); }
+            @Override public boolean onDown(MotionEvent e) { return viewOnly || point(e); }
             @Override public boolean onSingleTapUp(MotionEvent e) {
-                if (!twoFinger && !suppressPointerGesture() && point(e)) cursor.performClick(); return true;
+                if (!viewOnly && !twoFinger && !suppressPointerGesture() && point(e)) cursor.performClick(); return true;
             }
-            @Override public void onLongPress(MotionEvent e) { if (!twoFinger && !dragging && !suppressPointerGesture() && point(e)) click(3, 4); }
+            @Override public void onLongPress(MotionEvent e) { if (!viewOnly && !twoFinger && !dragging && !suppressPointerGesture() && point(e)) click(3, 4); }
             @Override public boolean onScroll(MotionEvent first, MotionEvent current, float dx, float dy) {
-                if (twoFinger) return true;
+                if (viewOnly || twoFinger) return true;
                 if (!usesRelativeMotion(current) && !dragging && !suppressPointerGesture()) {
                     if (!point(first)) return true;
                     mouseInput.gestureLeft(true); dragging = true;
@@ -79,7 +84,7 @@ final class RemoteVideoView extends FrameLayout implements SurfaceHolder.Callbac
         // Detect a change in finger spacing even when the fingers start close together.
         pinchSlop = ViewConfiguration.get(context).getScaledTouchSlop() * .5f;
         cursor.setOnGenericMotionListener((v, event) -> {
-            if (!point(event)) return true;
+            if (viewOnly || !point(event)) return true;
             if (event.getActionMasked() == MotionEvent.ACTION_SCROLL) {
                 float delta = event.getAxisValue(MotionEvent.AXIS_VSCROLL);
                 if (delta != 0) session.pointer(x, y, 7, delta > 0 ? 1 : -1);
@@ -147,6 +152,7 @@ final class RemoteVideoView extends FrameLayout implements SurfaceHolder.Callbac
         return relative && event.getToolType(0) != MotionEvent.TOOL_TYPE_MOUSE;
     }
     private boolean point(MotionEvent e) {
+        if (viewOnly) return false;
         boolean touchpad = usesRelativeMotion(e);
         float px=e.getX(),py=e.getY();
         if (!touchpad && !viewport.contains(px,py)) return false;
@@ -187,7 +193,7 @@ final class RemoteVideoView extends FrameLayout implements SurfaceHolder.Callbac
         if (twoFinger && e.getPointerCount() >= 2 && (action == MotionEvent.ACTION_MOVE ||
                 action == MotionEvent.ACTION_POINTER_DOWN || action == MotionEvent.ACTION_POINTER_UP)) {
             updateTwoFingers(e);
-        } else if (!twoFinger) {
+        } else if (!twoFinger && !viewOnly) {
             if ((e.getButtonState() & MotionEvent.BUTTON_SECONDARY) != 0 && action == MotionEvent.ACTION_DOWN) {
                 if (point(e)) click(3,4); return true;
             }
@@ -246,7 +252,7 @@ final class RemoteVideoView extends FrameLayout implements SurfaceHolder.Callbac
                 viewport.panBy(focusX - twoFingerX, focusY - twoFingerY);
                 applyViewport();
             }
-        } else if (viewport.contains(focusX, focusY)) {
+        } else if (!viewOnly && viewport.contains(focusX, focusY)) {
             float delta = focusY - scrollY;
             if (Math.abs(delta) > 16 * getResources().getDisplayMetrics().density) {
                 session.pointer(x, y, 7, delta > 0 ? 1 : -1);

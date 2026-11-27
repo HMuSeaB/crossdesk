@@ -211,6 +211,33 @@ jobs:
                   stream.write(f"ANDROID_VERSION_NAME={name[1]}\nANDROID_VERSION_CODE={code[1]}\n"
                                f"ANDROID_ARTIFACT_VERSION={tag.removeprefix('android-')}\n")
 
+      - name: Bump versionCode for workflow_dispatch builds
+        if: github.event_name == 'workflow_dispatch'
+        shell: python
+        run: |
+          import os
+          base_code = int(os.environ.get("ANDROID_VERSION_CODE", "5"))
+          run_num = int(os.environ.get("GITHUB_RUN_NUMBER", "1"))
+          new_code = base_code + run_num
+          with open(os.environ["GITHUB_ENV"], "a") as stream:
+              stream.write(f"ANDROID_VERSION_CODE={new_code}\n")
+
+      - name: Restore persistent debug keystore
+        uses: actions/cache@v5
+        with:
+          path: ~/.android/debug.keystore
+          key: crossdesk-custom-debug-keystore-v1
+
+      - name: Ensure persistent debug keystore exists
+        run: |
+          if [ ! -f ~/.android/debug.keystore ]; then
+            mkdir -p ~/.android
+            keytool -genkeypair -v -keystore ~/.android/debug.keystore \
+              -storepass android -alias androiddebugkey -keypass android \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
+
       - name: Build APKs
         working-directory: apps/android
         run: |

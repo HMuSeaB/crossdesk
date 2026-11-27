@@ -93,7 +93,7 @@ public final class MainActivity extends Activity implements NativeSession.Listen
     private boolean manualDisconnect, reconnecting;
     private Runnable reconnectRunnable;
     private JSONArray displays=new JSONArray();
-    private boolean muted,ready,rememberPassword;
+    private boolean muted,ready,rememberPassword,viewOnly;
     private boolean remoteServiceAvailable;
     private static final int PICK_FILE=41,SAVE_FILE=42;
     private NativeSession documentSession;
@@ -525,7 +525,7 @@ public final class MainActivity extends Activity implements NativeSession.Listen
         dialog.setContentView(card);dialog.setCanceledOnTouchOutside(false);dialog.setOnCancelListener(d->{manualDisconnect=true;end("");});Window w=dialog.getWindow();if(w!=null){w.setBackgroundDrawableResource(android.R.color.transparent);w.setDimAmount(.08f);}dialog.show();if(w!=null)w.setLayout(dp(292),-2);
     }
     private void sessionScreen(boolean autoLandscape){
-        installRoot("session",true);remoteOrientation.begin(autoLandscape,!isTablet()&&!isInMultiWindowMode());video=new RemoteVideoView(this,session);video.setRelative(preferences.getBoolean("relativeMouse",true));
+        installRoot("session",true);remoteOrientation.begin(autoLandscape,!isTablet()&&!isInMultiWindowMode());video=new RemoteVideoView(this,session);video.setRelative(preferences.getBoolean("relativeMouse",true));viewOnly=false;video.setViewOnly(false);
         // Video, cursor and touch input must share the area inside system bars
         // and display cutouts; fitting to the outer canvas hides image edges.
         safeArea.addView(video,0,new FrameLayout.LayoutParams(-1,-1));
@@ -542,7 +542,9 @@ public final class MainActivity extends Activity implements NativeSession.Listen
             public boolean textEdit(int count,String value){return sendTextEdit(count,value);}
             public void chord(int code,int[] modifiers){if(ready&&session!=null)session.chord(code,modifiers);}public void shortcut(int code){MainActivity.this.shortcut(code);}public void text(String value){sendText(value);}
             public void mute(){muted=!muted;if(session!=null)session.control(2,muted?0:1);controls.setMuted(muted);}
-            public void mouse(){boolean relative=!preferences.getBoolean("relativeMouse",true);preferences.edit().putBoolean("relativeMouse",relative).apply();video.setRelative(relative);controls.setRelative(relative);}
+            public void mouse(){setRelativeMode(!preferences.getBoolean("relativeMouse",true));}
+            public void setRelativeMode(boolean relative){preferences.edit().putBoolean("relativeMouse",relative).apply();if(video!=null)video.setRelative(relative);if(controls!=null)controls.setRelative(relative);}
+            public void toggleViewOnly(){viewOnly=!viewOnly;if(video!=null)video.setViewOnly(viewOnly);if(controls!=null)controls.setViewOnly(viewOnly);toast(L10n.tr(viewOnly?"已开启仅观看模式":"已恢复触控操作"));}
             public void displayResolution(RemoteDisplayResolutions.Mode mode){updateDisplayResolution(mode);}
             public void videoSettings(int field,int value){RemoteVideoSettings.Values old=MainActivity.this.videoSettings.selection;updateVideoSettings(new RemoteVideoSettings.Values(field==0?value:old.quality,field==1?value:old.frameRate,field==2?value:old.preference));}
         });controls.setHostPlatform(hostPlatform);controls.setRelative(preferences.getBoolean("relativeMouse",true));controls.setMuted(muted);controls.videoSettings(videoSettings);controls.displayResolutions(displayResolutions,selectedDisplay);root.addView(controls,new LinearLayout.LayoutParams(-1,-1));getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
@@ -1085,7 +1087,7 @@ public final class MainActivity extends Activity implements NativeSession.Listen
         boolean remoteEditor=focus instanceof RemoteKeyboardInput;
         boolean desktopKey=event.isCtrlPressed()||event.isAltPressed()||event.isMetaPressed()||pressed.contains(code)
             ||code==17||code==18||code==91||code==27||code==9||code>=33&&code<=40||code==45||code==46||code>=112&&code<=123;
-        if(ready&&session!=null&&!pictureInPictureUi&&hasWindowFocus()&&(!(focus instanceof EditText)||remoteEditor&&(!((RemoteKeyboardInput)focus).isAcceptingInput()||desktopKey))&&event.getKeyCode()!=KeyEvent.KEYCODE_BACK&&code!=0){
+        if(!viewOnly&&ready&&session!=null&&!pictureInPictureUi&&hasWindowFocus()&&(!(focus instanceof EditText)||remoteEditor&&(!((RemoteKeyboardInput)focus).isAcceptingInput()||desktopKey))&&event.getKeyCode()!=KeyEvent.KEYCODE_BACK&&code!=0){
             boolean down=event.getAction()==KeyEvent.ACTION_DOWN;
             if(down){pressed.add(code);if(remoteEditor)controls.resetKeyboardContext();}else pressed.remove(code);
             session.key(code,down);return true;

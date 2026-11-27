@@ -18,36 +18,74 @@ import android.widget.TextView;
 /** Touch ownership continues outside the original key bounds. */
 @SuppressLint("ViewConstructor")
 final class VirtualMouseBar extends LinearLayout {
-    static final int WIDTH_DP = 140, HEIGHT_DP = 68;
+    static final int WIDTH_DP = 140, HEIGHT_DP = 68, MINI_DP = 40;
     final FrameLayout dragHandle;
+    final View miniOrb;
+    private final LinearLayout expandedPanel;
     private final RemoteMouseInput input;
     private final MobileUi ui;
     private final TextView[] keys = new TextView[3];
     private int generation;
+    private boolean collapsed;
+    Runnable onLayoutModeChanged;
 
     VirtualMouseBar(MobileUi ui, RemoteMouseInput input) {
         super(ui.context); this.ui = ui; this.input = input;
         setOrientation(VERTICAL);
-        GradientDrawable shell = ui.background(Color.WHITE, 18);
-        shell.setStroke(ui.dp(.5f), 0xFFD4DAE2);
-        setBackground(shell);
         setMotionEventSplittingEnabled(true);
+
+        expandedPanel = ui.column();
+        GradientDrawable shell = ui.background(MobileUi.SURFACE, 18);
+        shell.setStroke(ui.dp(.5f), MobileUi.LINE);
+        expandedPanel.setBackground(shell);
+        expandedPanel.setMotionEventSplittingEnabled(true);
+
+        LinearLayout header = ui.row();
         dragHandle = new FrameLayout(ui.context);
         dragHandle.setContentDescription(L10n.tr("拖动虚拟鼠标"));
         View grip = new View(ui.context);
         grip.setBackground(ui.background(MobileUi.SECONDARY, 2));
         dragHandle.addView(grip, new FrameLayout.LayoutParams(ui.dp(28), ui.dp(3), Gravity.CENTER));
-        addView(dragHandle, new LayoutParams(LayoutParams.MATCH_PARENT, ui.dp(20)));
+        header.addView(dragHandle, new LayoutParams(0, ui.dp(22), 1));
+
+        TextView collapseBtn = ui.text("×", 14, true);
+        collapseBtn.setTextColor(MobileUi.SECONDARY);
+        collapseBtn.setGravity(Gravity.CENTER);
+        collapseBtn.setContentDescription(L10n.tr("收起为迷你鼠标"));
+        collapseBtn.setOnClickListener(v -> setCollapsed(true));
+        header.addView(collapseBtn, new LayoutParams(ui.dp(26), ui.dp(22)));
+        expandedPanel.addView(header, new LayoutParams(LayoutParams.MATCH_PARENT, ui.dp(22)));
+
         LinearLayout row = ui.row();
         row.setPadding(ui.dp(4), 0, ui.dp(4), 0);
         row.setMotionEventSplittingEnabled(true);
-        addView(row, new LayoutParams(LayoutParams.MATCH_PARENT, ui.dp(48)));
+        expandedPanel.addView(row, new LayoutParams(LayoutParams.MATCH_PARENT, ui.dp(46)));
         keys[0] = key(L10n.tr("鼠标左键，按住并拖动，松开结束拖拽"), 0);
         keys[1] = key(L10n.tr("鼠标滚轮，上下滑动，可滑出按键范围"), 1);
         keys[2] = key(L10n.tr("鼠标右键，按住并拖动，松开结束拖拽"), 2);
-        for (TextView key : keys) row.addView(key, new LayoutParams(0, ui.dp(44), 1));
+        for (TextView key : keys) row.addView(key, new LayoutParams(0, ui.dp(42), 1));
+        addView(expandedPanel, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT));
+
+        miniOrb = new MiniMouseOrb(ui);
+        miniOrb.setVisibility(GONE);
+        miniOrb.setContentDescription(L10n.tr("展开虚拟鼠标"));
+        addView(miniOrb, new LayoutParams(ui.dp(MINI_DP), ui.dp(MINI_DP)));
+
         input.didCancel = this::resetTouches;
         setContentDescription(L10n.tr("虚拟鼠标"));
+    }
+
+    boolean isCollapsed() { return collapsed; }
+    int currentWidthDp() { return collapsed ? MINI_DP : WIDTH_DP; }
+    int currentHeightDp() { return collapsed ? MINI_DP : HEIGHT_DP; }
+
+    void setCollapsed(boolean value) {
+        if (collapsed == value) return;
+        cancelInput();
+        collapsed = value;
+        expandedPanel.setVisibility(value ? GONE : VISIBLE);
+        miniOrb.setVisibility(value ? VISIBLE : GONE);
+        if (onLayoutModeChanged != null) onLayoutModeChanged.run();
     }
 
     @SuppressLint("ClickableViewAccessibility") // Touch sends real down/up; performClick serves accessibility only.
@@ -121,9 +159,8 @@ final class VirtualMouseBar extends LinearLayout {
     }
     private void highlight(TextView key, int index, boolean pressed) {
         key.setPressed(pressed);
-        key.setTextColor(pressed ? Color.WHITE : 0xB8303640);
-        // Narrow only the wheel's visible face; its 44 × 44 dp target remains.
-        GradientDrawable face = ui.background(pressed ? MobileUi.BLUE : 0xFFEDF0F4, 6);
+        key.setTextColor(pressed ? Color.WHITE : MobileUi.INK);
+        GradientDrawable face = ui.background(pressed ? MobileUi.BLUE : MobileUi.SURFACE_ELEVATED, 6);
         float left = ui.dp(index == 0 ? 14 : 6), right = ui.dp(index == 2 ? 14 : 6);
         face.setCornerRadii(new float[]{left,left,right,right,right,right,left,left});
         int horizontal = ui.dp(index == 1 ? 13 : 1), vertical = ui.dp(index == 1 ? 7 : 2);
@@ -135,6 +172,30 @@ final class VirtualMouseBar extends LinearLayout {
     private void resetTouches() {
         generation++;
         for (int i=0;i<keys.length;i++) if (keys[i] != null) highlight(keys[i], i, false);
+    }
+    /** Compact floating mouse icon shown when collapsed. */
+    private static final class MiniMouseOrb extends View {
+        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final float density;
+        MiniMouseOrb(MobileUi ui) {
+            super(ui.context);
+            density = getResources().getDisplayMetrics().density;
+            GradientDrawable bg = ui.background(0xE61A1A1E, 20);
+            bg.setStroke(ui.dp(1f), 0x80FFFFFF);
+            setBackground(bg);
+            setElevation(ui.dp(6));
+        }
+        @Override protected void onDraw(Canvas canvas) {
+            super.onDraw(canvas);
+            float cx = getWidth() / 2f, cy = getHeight() / 2f;
+            float w = 13 * density, h = 19 * density;
+            RectF body = new RectF(cx - w / 2f, cy - h / 2f, cx + w / 2f, cy + h / 2f);
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(1.6f * density);
+            paint.setColor(Color.WHITE);
+            canvas.drawRoundRect(body, w / 2f, w / 2f, paint);
+            canvas.drawLine(cx, body.top + 3.2f * density, cx, body.top + 7.5f * density, paint);
+        }
     }
     /** Flat, uniformly colored treads follow the finger, wrapping every 5 dp. */
     private static final class WheelKey extends TextView {

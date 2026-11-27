@@ -18,6 +18,8 @@ final class SessionControls extends FrameLayout {
         default void displayResolution(RemoteDisplayResolutions.Mode mode) { }
         void sendFile(); void saveFile(); void secureAttention();
         default void lockWorkstation() { }
+        default void setRelativeMode(boolean relative) { }
+        default void toggleViewOnly() { }
         default void togglePrivacy() { }
         default void showDesktop() { }
         default void showAllWindows() { }
@@ -70,7 +72,7 @@ final class SessionControls extends FrameLayout {
     private TextView[] networkDetails;
     private boolean endpointsExpanded;
     private View encryptionLock,encryptionOpen;
-    private boolean muted,relative=true,orbPositioned,secureAttentionVisible;
+    private boolean muted,relative=true,orbPositioned,secureAttentionVisible,viewOnly;
     SessionControls(Context context,MobileUi ui,IntConsumer keyboardInsetChanged,Actions actions){
         super(context);this.ui=ui;this.actions=actions;
         this.keyboardInsetChanged = keyboardInsetChanged;
@@ -174,6 +176,11 @@ final class SessionControls extends FrameLayout {
                 +"  "+L10n.tr("丢包 ")+loss+"  "+network.resolution());
     }
     void setRelative(boolean value){relative=value;if(menu!=null&&menuPage.equals("controls"))openMenu("controls");}
+    void setViewOnly(boolean value){
+        viewOnly=value;
+        if(value){cancelMouseInput();mouseVisible=false;closeKeyboard();positionMouse();}
+        if(menu!=null&&menuPage.equals("controls"))openMenu("controls");
+    }
     void setHostPlatform(String platform){
         keyboard.setPlatform(platform);
         boolean visible="windows".equals(platform);
@@ -184,8 +191,16 @@ final class SessionControls extends FrameLayout {
     void attachMouseBar(FrameLayout safeArea, int controlsIndex, VirtualMouseBar bar) {
         mouseBar=bar;
         // Keep the bar above the video for split touch, and below the orb and menu.
-        safeArea.addView(bar,controlsIndex,new FrameLayout.LayoutParams(ui.dp(VirtualMouseBar.WIDTH_DP),ui.dp(VirtualMouseBar.HEIGHT_DP),Gravity.TOP|Gravity.LEFT));
+        safeArea.addView(bar,controlsIndex,new FrameLayout.LayoutParams(ui.dp(bar.currentWidthDp()),ui.dp(bar.currentHeightDp()),Gravity.TOP|Gravity.LEFT));
         drag(bar.dragHandle,bar,null);
+        drag(bar.miniOrb,bar,()->bar.setCollapsed(false));
+        bar.onLayoutModeChanged=()->{
+            ViewGroup.LayoutParams lp=bar.getLayoutParams();
+            lp.width=ui.dp(bar.currentWidthDp());
+            lp.height=ui.dp(bar.currentHeightDp());
+            bar.setLayoutParams(lp);
+            positionMouse();
+        };
         bar.setVisibility(GONE);
     }
     void cancelMouseInput(){if(mouseBar!=null)mouseBar.cancelInput();}
@@ -199,12 +214,17 @@ final class SessionControls extends FrameLayout {
         boolean show=!pictureInPicture&&waiting.getVisibility()==GONE;
         sideBar.setVisibility(show?VISIBLE:GONE);
     }
-    private void toggleMouse(){cancelMouseInput();mouseVisible=!mouseVisible;closeMenu();positionMouse();}
+    private void toggleMouse(){
+        if(viewOnly){actions.toggleViewOnly();return;}
+        cancelMouseInput();mouseVisible=!mouseVisible;
+        if(mouseVisible&&mouseBar!=null&&mouseBar.isCollapsed())mouseBar.setCollapsed(false);
+        closeMenu();positionMouse();
+    }
     private void positionMouse(){
         if(mouseBar==null)return;
-        boolean visible=!pictureInPicture&&mouseVisible&&waiting.getVisibility()==GONE;
+        boolean visible=!pictureInPicture&&!viewOnly&&mouseVisible&&waiting.getVisibility()==GONE;
         if(!visible){if(mouseBar.getVisibility()==VISIBLE)cancelMouseInput();mouseBar.setVisibility(GONE);return;}
-        float width=ui.dp(VirtualMouseBar.WIDTH_DP),height=ui.dp(VirtualMouseBar.HEIGHT_DP),gap=ui.dp(6),margin=ui.dp(8);
+        float width=ui.dp(mouseBar.currentWidthDp()),height=ui.dp(mouseBar.currentHeightDp()),gap=ui.dp(6),margin=ui.dp(8);
         float x = Float.isNaN(mouseX) ? getWidth() - width - ui.dp(16) : mouseX;
         float y = Float.isNaN(mouseY) ? getHeight() - height - ui.dp(24) : mouseY;
         float maxY = getHeight() - height - margin;
@@ -256,9 +276,9 @@ final class SessionControls extends FrameLayout {
             scroll.setScrollBarStyle(View.SCROLLBARS_OUTSIDE_INSET);body.setPadding(0,0,ui.dp(6),0);
         }
         if(page.equals("controls")){
-            String[] labels={L10n.tr("键盘"),mouseVisible?L10n.tr("收起鼠标"):L10n.tr("虚拟鼠标"),relative?L10n.tr("相对鼠标"):L10n.tr("绝对鼠标"),L10n.tr("显示器"),L10n.tr("画面设置"),muted?L10n.tr("静音"):L10n.tr("声音"),L10n.tr("发送文件"),L10n.tr("网络状态"),"Ctrl+Alt+Del",L10n.tr("剪贴板"),L10n.tr("隐私屏"),L10n.tr("锁定电脑")};
-            String[] icons={"keyboard","mouse","mouse","display","sliders","audio","folder","chart","lock","clipboard","eye","lock"};
-            Runnable[] clicks={()->{closeMenu();toggleKeyboard();},this::toggleMouse,actions::mouse,actions::display,()->openMenu("video"),actions::mute,actions::sendFile,()->openMenu("network"),actions::secureAttention,actions::clipboard,actions::togglePrivacy,()->{closeMenu();actions.lockWorkstation();}};
+            String[] labels={L10n.tr("键盘"),mouseVisible?L10n.tr("收起鼠标"):L10n.tr("虚拟鼠标"),viewOnly?L10n.tr("退出仅观看"):L10n.tr("仅观看"),L10n.tr("显示器"),L10n.tr("画面设置"),muted?L10n.tr("静音"):L10n.tr("声音"),L10n.tr("发送文件"),L10n.tr("网络状态"),"Ctrl+Alt+Del",L10n.tr("剪贴板"),L10n.tr("隐私屏"),L10n.tr("锁定电脑")};
+            String[] icons={"keyboard","mouse","eye","display","sliders","audio","folder","chart","lock","clipboard","eye","lock"};
+            Runnable[] clicks={()->{closeMenu();toggleKeyboard();},this::toggleMouse,actions::toggleViewOnly,actions::display,()->openMenu("video"),actions::mute,actions::sendFile,()->openMenu("network"),actions::secureAttention,actions::clipboard,actions::togglePrivacy,()->{closeMenu();actions.lockWorkstation();}};
             menuColumns=controlColumns();
             java.util.List<Integer> visibleControls=new java.util.ArrayList<>();
             for(int index=0;index<labels.length;index++){
@@ -266,10 +286,13 @@ final class SessionControls extends FrameLayout {
                 visibleControls.add(index);
             }
             int controlCount=visibleControls.size();
-            for(int row=0;row<(controlCount+menuColumns-1)/menuColumns;row++){LinearLayout line=ui.row();for(int col=0;col<menuColumns;col++){int position=row*menuColumns+col;if(position>=controlCount){View spacer=new View(getContext());LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,ui.dp(52),1);if(col>0)p.leftMargin=ui.dp(7);line.addView(spacer,p);continue;}int index=visibleControls.get(position);LinearLayout control=ui.column();control.setGravity(Gravity.CENTER);control.setBackground(ui.background(SURFACE_ELEVATED,10));MobileUi.Icon icon=ui.icon(icons[index],INK);control.addView(icon,ui.size(19,19));ui.gap(control,4);TextView caption=ui.text(labels[index],10,false);caption.setMaxLines(2);caption.setAutoSizeTextTypeUniformWithConfiguration(8,10,1,android.util.TypedValue.COMPLEX_UNIT_SP);caption.setGravity(Gravity.CENTER);control.addView(caption);control.setContentDescription(labels[index]);control.setClickable(true);control.setFocusable(true);control.setOnClickListener(v->clicks[index].run());
+            for(int row=0;row<(controlCount+menuColumns-1)/menuColumns;row++){LinearLayout line=ui.row();for(int col=0;col<menuColumns;col++){int position=row*menuColumns+col;if(position>=controlCount){View spacer=new View(getContext());LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,ui.dp(52),1);if(col>0)p.leftMargin=ui.dp(7);line.addView(spacer,p);continue;}int index=visibleControls.get(position);LinearLayout control=ui.column();control.setGravity(Gravity.CENTER);boolean active=(index==2&&viewOnly)||(index==1&&mouseVisible);control.setBackground(ui.background(active?BLUE:SURFACE_ELEVATED,10));MobileUi.Icon icon=ui.icon(icons[index],active?Color.WHITE:INK);control.addView(icon,ui.size(19,19));ui.gap(control,4);TextView caption=ui.text(labels[index],10,false);caption.setTextColor(active?Color.WHITE:INK);caption.setMaxLines(2);caption.setAutoSizeTextTypeUniformWithConfiguration(8,10,1,android.util.TypedValue.COMPLEX_UNIT_SP);caption.setGravity(Gravity.CENTER);control.addView(caption);control.setContentDescription(labels[index]);control.setClickable(true);control.setFocusable(true);control.setOnClickListener(v->clicks[index].run());
                     if(index==10){privacyButton=control;privacyIcon=icon;privacyCaption=caption;}
                     LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,ui.dp(52),1);if(col>0)p.leftMargin=ui.dp(7);line.addView(control,p);
                 }body.addView(line);if((row+1)*menuColumns<controlCount)ui.gap(body,7);}
+            ui.gap(body,8);
+            SegmentedControl pointerMode=new SegmentedControl(getContext(),ui,new String[]{L10n.tr("屏幕触控"),L10n.tr("鼠标指针")},relative?1:0,false,index->actions.setRelativeMode(index==1));
+            body.addView(pointerMode,ui.size(-1,36));
             privacyFeedback=ui.text("",11,false);privacyFeedback.setTextColor(SECONDARY);privacyFeedback.setPadding(0,ui.dp(7),0,0);privacyFeedback.setAccessibilityLiveRegion(ACCESSIBILITY_LIVE_REGION_POLITE);body.addView(privacyFeedback);renderPrivacy();
             ui.gap(body,7);transferLabel=ui.text(transferStatus,11,false);transferLabel.setTextColor(SECONDARY);transferLabel.setAccessibilityLiveRegion(ACCESSIBILITY_LIVE_REGION_POLITE);body.addView(transferLabel);
             saveFileButton=ui.action(L10n.tr("保存收到的文件"),BLUE,actions::saveFile);body.addView(saveFileButton);renderFileStatus();
