@@ -96,6 +96,7 @@ public final class MainActivity extends Activity implements NativeSession.Listen
     private String host, connectedRemote="", hostPlatform="", remoteClipboard="", pendingPassword="", page="home";
     private String lastSyncedClip="", activeSecret="", reconnectTarget="";
     private int port,selectedDisplay,reconnectAttempts;
+    private long sessionConnectedAt;
     private boolean manualDisconnect, reconnecting;
     private Runnable reconnectRunnable;
     private JSONArray displays=new JSONArray();
@@ -564,6 +565,9 @@ public final class MainActivity extends Activity implements NativeSession.Listen
         controls.setThumbMouseLayout(preferences.getString("thumbMouseLayout",""));
         controls.attachMouseBar(safeArea,safeArea.indexOfChild(root),new VirtualMouseBar(ui,video.mouseInput));
         controls.setVirtualMouseMode(preferences.getInt("virtualMouseMode",VirtualMouseBar.MODE_EXPANDED));
+        controls.setConnectedTime(sessionConnectedAt);
+        video.setPointerAcceleration(preferences.getBoolean("pointerAcceleration",true));
+        video.viewportListener=controls::onViewportRectChanged;
         privacyChanged();
         video.remoteFocusChanged=()->{if(controls!=null)controls.resetKeyboardContext();};
         controls.requestApplyInsets();
@@ -592,15 +596,19 @@ public final class MainActivity extends Activity implements NativeSession.Listen
         if(progressDialog!=null){progressDialog.dismiss();progressDialog=null;}
         if(session!=null){releaseKeys();session.close();session=null;}
         if(!foreground)stopSignaling();
-        pendingPassword="";activeSecret="";reconnectTarget="";reconnectAttempts=0;remoteClipboard="";lastSyncedClip="";hostPlatform="";displays=new JSONArray();ready=false;video=null;controls=null;getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        pendingPassword="";activeSecret="";reconnectTarget="";reconnectAttempts=0;sessionConnectedAt=0;remoteClipboard="";lastSyncedClip="";hostPlatform="";displays=new JSONArray();ready=false;video=null;controls=null;getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         if(closeWindow){finish();return;}
         home(reason);
         appUpdates.checkNow();
     }
     private void settings(){
         LinearLayout content=formPage("settings",L10n.tr("设置"),()->home(""));
-        LinearLayout mouse=section(content,L10n.tr("鼠标控制"),MobileUi.SETTINGS_CARD_RADIUS);mouse.setPadding(dp(12),dp(12),dp(12),dp(12));boolean relative=preferences.getBoolean("relativeMouse",true);
-        mouse.addView(segments(new String[]{L10n.tr("相对位置"),L10n.tr("绝对位置")},relative?0:1,true,index->preferences.edit().putBoolean("relativeMouse",index==0).apply()));
+        LinearLayout mouse=section(content,L10n.tr("鼠标控制"),MobileUi.SETTINGS_CARD_RADIUS);LinearLayout mouseModeBox=column();mouseModeBox.setPadding(dp(12),dp(12),dp(12),dp(8));boolean relative=preferences.getBoolean("relativeMouse",true);
+        mouseModeBox.addView(segments(new String[]{L10n.tr("相对位置"),L10n.tr("绝对位置")},relative?0:1,true,index->preferences.edit().putBoolean("relativeMouse",index==0).apply()));mouse.addView(mouseModeBox);
+        ui.divider(mouse);
+        LinearLayout accelRow=row();accelRow.setPadding(dp(16),dp(10),dp(16),dp(10));accelRow.addView(text(L10n.tr("自然指针加速"),16,false),new LinearLayout.LayoutParams(0,-2,1));
+        Switch accelSwitch=new Switch(this);accelSwitch.setContentDescription(L10n.tr("自然指针加速"));accelSwitch.setChecked(preferences.getBoolean("pointerAcceleration",true));accelSwitch.setOnCheckedChangeListener((button,checked)->preferences.edit().putBoolean("pointerAcceleration",checked).apply());accelRow.addView(accelSwitch);mouse.addView(accelRow);
+        footer(content,L10n.tr("默认开启。相对模式下慢滑精细定位、快甩跨屏直达；关闭则为标准 1:1 线性移动。"));
         LinearLayout picture=section(content,L10n.tr("画面偏好"),MobileUi.SETTINGS_CARD_RADIUS);picture.setPadding(dp(12),dp(12),dp(12),dp(12));int preference=Math.max(0,Math.min(2,preferences.getInt("videoPreference",1)));
         picture.addView(segments(RemoteVideoSettings.preferences(),preference,true,index->preferences.edit().putInt("videoPreference",index).apply()));ui.gap(content,28);
         LinearLayout direction=section(content,L10n.tr("屏幕方向"),MobileUi.SETTINGS_CARD_RADIUS);LinearLayout directionRow=row();directionRow.setPadding(dp(16),dp(10),dp(16),dp(10));directionRow.addView(text(L10n.tr("连接建立后锁定横屏"),16,false),new LinearLayout.LayoutParams(0,-2,1));
@@ -1076,7 +1084,7 @@ public final class MainActivity extends Activity implements NativeSession.Listen
     @Override public void connected(){
         // Transport readiness can be reported again after ICE changes its selected path.
         // The first success consumes pendingPassword; a duplicate must not save it again.
-        if(session==null||ready)return;ready=true;reconnectAttempts=0;if(progressDialog!=null){progressDialog.dismiss();progressDialog=null;}
+        if(session==null||ready)return;ready=true;reconnectAttempts=0;if(sessionConnectedAt==0)sessionConnectedAt=android.os.SystemClock.elapsedRealtime();if(progressDialog!=null){progressDialog.dismiss();progressDialog=null;}
         try{history.save(serverKey(),connectedRemote,connectedRemote,hostPlatform,rememberPassword,pendingPassword);}catch(Exception error){toast(L10n.tr("密码保存失败，本次连接仍可使用"));}pendingPassword="";sessionScreen(preferences.getBoolean("autoLandscape",false));
         if(!canUsePictureInPicture())prepareBackgroundSession(true);
         if(videoSettings.supported&&videoSettings.requestId==0)updateVideoSettings(videoSettings.selection);

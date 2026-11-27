@@ -26,12 +26,17 @@ final class VirtualMouseBar extends LinearLayout {
     private final RemoteMouseInput input;
     private final MobileUi ui;
     private final TextView[] keys = new TextView[3];
+    private final ScrollInertiaHelper wheelInertia;
     private int generation;
     private int mode = MODE_EXPANDED;
     Runnable onLayoutModeChanged;
 
     VirtualMouseBar(MobileUi ui, RemoteMouseInput input) {
         super(ui.context); this.ui = ui; this.input = input;
+        wheelInertia = new ScrollInertiaHelper(getResources().getDisplayMetrics().density, 10f,
+                input::scroll, delta -> {
+                    if (keys[1] instanceof WheelKey) ((WheelKey) keys[1]).advance(delta);
+                });
         setOrientation(VERTICAL);
         setMotionEventSplittingEnabled(true);
 
@@ -147,6 +152,7 @@ final class VirtualMouseBar extends LinearLayout {
                     lastX = event.getRawX(); lastY = event.getRawY(); remainder = 0;
                     highlight(key, index, true);
                     if (index != 1) input.virtualButton(index == 0, true);
+                    else wheelInertia.begin(event.getRawY(), event.getEventTime());
                     return true;
                 }
                 if (startedGeneration != generation || pointer == -1) return true;
@@ -159,6 +165,7 @@ final class VirtualMouseBar extends LinearLayout {
                     float dx = x - lastX, dy = y - lastY;
                     lastX = x; lastY = y;
                     if (index != 1) { input.drag(dx, dy); return true; }
+                    wheelInertia.track(y, event.getEventTime());
                     ((WheelKey)key).advance(dy);
                     remainder += dy;
                     float step = ui.dp(10);
@@ -170,6 +177,8 @@ final class VirtualMouseBar extends LinearLayout {
                 if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL ||
                     (action == MotionEvent.ACTION_POINTER_UP && event.getPointerId(event.getActionIndex()) == pointer)) {
                     if (index != 1) input.virtualButton(index == 0, false);
+                    else if (action == MotionEvent.ACTION_CANCEL) wheelInertia.stop();
+                    else wheelInertia.fling(-1);
                     pointer = -1; remainder = 0; highlight(key, index, false);
                 }
                 return true;
@@ -187,10 +196,12 @@ final class VirtualMouseBar extends LinearLayout {
         key.setBackground(new InsetDrawable(face, horizontal, vertical, horizontal, vertical));
     }
     void cancelInput() {
+        wheelInertia.stop();
         input.releaseAll();
     }
     void resetTouches() {
         generation++;
+        wheelInertia.stop();
         for (int i=0;i<keys.length;i++) if (keys[i] != null) highlight(keys[i], i, false);
     }
     /** Compact floating mouse icon shown when collapsed. */

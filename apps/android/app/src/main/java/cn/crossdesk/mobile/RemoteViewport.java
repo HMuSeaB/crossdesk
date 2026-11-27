@@ -25,6 +25,8 @@ final class RemoteViewport {
 
     int baseWidth() { return baseWidth; }
     int baseHeight() { return baseHeight; }
+    int containerWidth() { return containerWidth; }
+    int containerHeight() { return containerHeight; }
     float scale() { return scale; }
     float offsetX() { return offsetX; }
     float offsetY() { return offsetY; }

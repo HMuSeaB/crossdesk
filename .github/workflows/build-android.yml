@@ -92,6 +92,7 @@ jobs:
             fi
           done
           if (( ${#crossdesk_missing_packages[@]} )); then
+            sudo rm -f /etc/apt/sources.list.d/microsoft*.list /etc/apt/sources.list.d/microsoft*.sources || true
             sudo apt-get update
             sudo apt-get install -y --no-install-recommends "${crossdesk_missing_packages[@]}"
           fi

@@ -128,6 +128,7 @@ final class ConfigBackupManager {
         prefs.put("lastRemote", settings.getString("lastRemote", ""));
         prefs.put("virtualMouseMode", settings.getInt("virtualMouseMode", VirtualMouseBar.MODE_EXPANDED));
         prefs.put("thumbMouseLayout", settings.getString("thumbMouseLayout", ""));
+        prefs.put("pointerAcceleration", settings.getBoolean("pointerAcceleration", true));
 
         JSONObject recents = new JSONObject();
         Map<String, ?> allSettings = settings.getAll();
@@ -251,6 +252,7 @@ final class ConfigBackupManager {
             if (prefObj.has("thumbMouseLayout") && prefObj.opt("thumbMouseLayout") instanceof String) {
                 settingsEditor.putString("thumbMouseLayout", prefObj.optString("thumbMouseLayout", ""));
             }
+            settingsEditor.putBoolean("pointerAcceleration", prefObj.optBoolean("pointerAcceleration", true));
         }
 
         int deviceCount = 0;

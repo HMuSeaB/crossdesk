@@ -30,6 +30,7 @@ final class ThumbSplitMouseOverlay extends FrameLayout {
     private final MouseOrbButton leftOrb, rightOrb;
     private final LinearLayout wheelCapsule;
     private final VirtualMouseBar.WheelKey wheelKey;
+    private final ScrollInertiaHelper wheelInertia;
 
     private float leftXFrac = DEFAULT_LEFT_X, leftYFrac = DEFAULT_LEFT_Y;
     private float rightXFrac = DEFAULT_RIGHT_X, rightYFrac = DEFAULT_RIGHT_Y;
@@ -93,6 +94,8 @@ final class ThumbSplitMouseOverlay extends FrameLayout {
         wheelCapsule.addView(downArrow, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, ui.dp(24)));
 
         addView(wheelCapsule, new LayoutParams(ui.dp(WHEEL_WIDTH_DP), ui.dp(WHEEL_HEIGHT_DP)));
+        wheelInertia = new ScrollInertiaHelper(getResources().getDisplayMetrics().density, 10f,
+                input::scroll, wheelKey::advance);
         setupWheelTouch(upArrow, downArrow);
         refreshVisuals();
     }
@@ -112,9 +115,14 @@ final class ThumbSplitMouseOverlay extends FrameLayout {
 
     void resetTouches() {
         generation++;
+        if (wheelInertia != null) wheelInertia.stop();
         leftOrb.setPressedState(false);
         rightOrb.setPressedState(false);
         refreshWheelBackground(false);
+    }
+    @Override protected void onDetachedFromWindow() {
+        if (wheelInertia != null) wheelInertia.stop();
+        super.onDetachedFromWindow();
     }
 
     void loadLayout(String json) {
@@ -266,7 +274,10 @@ final class ThumbSplitMouseOverlay extends FrameLayout {
                     startTransX = wheelCapsule.getTranslationX();
                     startTransY = wheelCapsule.getTranslationY();
                     remainder = 0;
-                    if (!editingLayout) refreshWheelBackground(true);
+                    if (!editingLayout) {
+                        refreshWheelBackground(true);
+                        wheelInertia.begin(event.getRawY(), event.getEventTime());
+                    }
                     return true;
                 }
                 if (startedGeneration != generation || pointer == -1) return true;
@@ -282,6 +293,7 @@ final class ThumbSplitMouseOverlay extends FrameLayout {
                     float dy = rawY - lastRawY;
                     lastRawX = rawX;
                     lastRawY = rawY;
+                    wheelInertia.track(rawY, event.getEventTime());
                     wheelKey.advance(dy);
                     remainder += dy;
                     float step = ui.dp(10);
@@ -294,6 +306,10 @@ final class ThumbSplitMouseOverlay extends FrameLayout {
                 }
                 if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL
                         || (action == MotionEvent.ACTION_POINTER_UP && event.getPointerId(event.getActionIndex()) == pointer)) {
+                    if (!editingLayout) {
+                        if (action == MotionEvent.ACTION_CANCEL) wheelInertia.stop();
+                        else wheelInertia.fling(-1);
+                    }
                     pointer = -1;
                     remainder = 0;
                     refreshWheelBackground(false);

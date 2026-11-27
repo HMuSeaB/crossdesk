@@ -43,6 +43,16 @@ final class SessionControls extends FrameLayout {
     private String savedThumbLayout = "";
     private TextView statsHud;
     private int statsHudMode = 2;
+    private long connectedAtElapsedMs;
+    private boolean letterboxDocked;
+    private int letterboxLeftPx, letterboxRightPx;
+    private final Runnable durationTicker = new Runnable() {
+        @Override public void run() {
+            if (statsHud != null && statsHud.getVisibility() == VISIBLE && !pictureInPicture) {
+                renderStatsHud();
+            }
+        }
+    };
     private LinearLayout sideBar, sideBarItems;
     private MobileUi.Icon sideBarToggleIcon;
     private boolean sideBarExpanded = true;
@@ -166,21 +176,101 @@ final class SessionControls extends FrameLayout {
         if(sideBarItems!=null)sideBarItems.setVisibility(sideBarExpanded?VISIBLE:GONE);
         if(sideBarToggleIcon!=null)sideBarToggleIcon.setName(sideBarExpanded?"chevron_right":"chevron_left");
     }
+    void setConnectedTime(long elapsedMs){
+        if(elapsedMs>0)connectedAtElapsedMs=elapsedMs;
+        renderStatsHud();
+    }
+    void onViewportRectChanged(float left,float top,float width,float height,int containerWidth,int containerHeight,boolean zoomed){
+        int leftGap=Math.max(0,Math.round(left));
+        int rightGap=Math.max(0,Math.round(containerWidth-(left+width)));
+        boolean nextDocked=!pictureInPicture&&!zoomed&&leftGap>=ui.dp(56)&&rightGap>=ui.dp(56);
+        if(nextDocked==letterboxDocked&&leftGap==letterboxLeftPx&&rightGap==letterboxRightPx)return;
+        boolean dockChanged=nextDocked!=letterboxDocked;
+        letterboxDocked=nextDocked;
+        letterboxLeftPx=leftGap;
+        letterboxRightPx=rightGap;
+        applyLetterboxDocking(dockChanged);
+        renderStatsHud();
+        if(mouseMode==VirtualMouseBar.MODE_THUMB_SPLIT)positionMouse();
+    }
+    private void applyLetterboxDocking(boolean dockChanged){
+        if(statsHud!=null){
+            LayoutParams hudLp=(LayoutParams)statsHud.getLayoutParams();
+            int targetLeft=letterboxDocked?ui.dp(6):ui.dp(12);
+            int targetTop=letterboxDocked?ui.dp(14):ui.dp(12);
+            if(hudLp.leftMargin!=targetLeft||hudLp.topMargin!=targetTop){
+                hudLp.leftMargin=targetLeft;hudLp.topMargin=targetTop;
+                statsHud.setLayoutParams(hudLp);
+            }
+            if(letterboxDocked){
+                if(dockChanged){
+                    statsHud.setBackground(null);
+                    statsHud.setPadding(ui.dp(2),ui.dp(2),ui.dp(2),ui.dp(2));
+                    statsHud.setTextSize(9.5f);
+                }
+                statsHud.setMaxWidth(Math.max(ui.dp(44),letterboxLeftPx-ui.dp(8)));
+            }else if(dockChanged){
+                android.graphics.drawable.GradientDrawable bg=ui.background(0xAA121216,8);
+                bg.setStroke(ui.dp(.5f),0x33FFFFFF);
+                statsHud.setBackground(bg);
+                statsHud.setPadding(ui.dp(8),ui.dp(5),ui.dp(8),ui.dp(5));
+                statsHud.setTextSize(10f);
+                statsHud.setMaxWidth(Integer.MAX_VALUE);
+            }
+        }
+        if(sideBar!=null){
+            LayoutParams sbLp=(LayoutParams)sideBar.getLayoutParams();
+            int targetRight=letterboxDocked?Math.max(ui.dp(4),(letterboxRightPx-ui.dp(52))/2):ui.dp(8);
+            if(sbLp.rightMargin!=targetRight){
+                sbLp.rightMargin=targetRight;
+                sideBar.setLayoutParams(sbLp);
+            }
+            if(dockChanged){
+                if(letterboxDocked){
+                    sideBar.setBackground(ui.background(0x66121216,14));
+                }else{
+                    android.graphics.drawable.GradientDrawable bg=ui.background(0xCC16161B,14);
+                    bg.setStroke(ui.dp(.5f),0x33FFFFFF);
+                    sideBar.setBackground(bg);
+                }
+            }
+        }
+    }
+    private static String formatDuration(long sec){
+        long h=sec/3600,m=(sec%3600)/60,s=sec%60;
+        return String.format(java.util.Locale.US,"%02d:%02d:%02d",h,m,s);
+    }
     private void renderStatsHud(){
         if(statsHud==null)return;
+        statsHud.removeCallbacks(durationTicker);
         boolean show=!pictureInPicture&&waiting.getVisibility()==GONE&&statsHudMode>0;
         statsHud.setVisibility(show?VISIBLE:GONE);
         if(!show)return;
-        if(statsHudMode==1){
-            statsHud.setText(network.fps+" FPS · "+RemoteNetworkStatistics.latency(network.rtt));
-            return;
+        long elapsedSec=connectedAtElapsedMs>0?Math.max(0L,(android.os.SystemClock.elapsedRealtime()-connectedAtElapsedMs)/1000L):0L;
+        String duration=formatDuration(elapsedSec);
+        if(letterboxDocked){
+            if(statsHudMode==1){
+                statsHud.setText(duration+"\n"+network.fps+" fps\n"+RemoteNetworkStatistics.latency(network.rtt));
+            }else{
+                RemoteNetworkStatistics.Traffic video=network.report==null?null:network.report.traffic[0];
+                String in=RemoteNetworkStatistics.bitrate(video==null?-1:video.inbound);
+                String loss=RemoteNetworkStatistics.loss(video==null?Double.NaN:video.loss);
+                statsHud.setText(duration+"\n"+network.mode()+"\n"+network.fps+" fps\n"+in+"\n"
+                        +RemoteNetworkStatistics.latency(network.rtt)+"\n"+loss+" loss\n"+network.resolution());
+            }
+        }else{
+            if(statsHudMode==1){
+                statsHud.setText(duration+" · "+network.fps+" FPS · "+RemoteNetworkStatistics.latency(network.rtt));
+            }else{
+                RemoteNetworkStatistics.Traffic video=network.report==null?null:network.report.traffic[0];
+                String in=RemoteNetworkStatistics.bitrate(video==null?-1:video.inbound);
+                String loss=RemoteNetworkStatistics.loss(video==null?Double.NaN:video.loss);
+                statsHud.setText(duration+"  "+network.mode()+"  "+network.fps+" FPS  "+in+"\n"
+                        +L10n.tr("延时 ")+RemoteNetworkStatistics.latency(network.rtt)
+                        +"  "+L10n.tr("丢包 ")+loss+"  "+network.resolution());
+            }
         }
-        RemoteNetworkStatistics.Traffic video=network.report==null?null:network.report.traffic[0];
-        String in=RemoteNetworkStatistics.bitrate(video==null?-1:video.inbound);
-        String loss=RemoteNetworkStatistics.loss(video==null?Double.NaN:video.loss);
-        statsHud.setText(network.mode()+"  "+network.fps+" FPS  "+in+"\n"
-                +L10n.tr("延时 ")+RemoteNetworkStatistics.latency(network.rtt)
-                +"  "+L10n.tr("丢包 ")+loss+"  "+network.resolution());
+        if(connectedAtElapsedMs>0)statsHud.postDelayed(durationTicker,1000);
     }
     void setRelative(boolean value){relative=value;if(menu!=null&&menuPage.equals("controls"))openMenu("controls");}
     void setViewOnly(boolean value){
@@ -304,6 +394,7 @@ final class SessionControls extends FrameLayout {
             if(mouseMode==VirtualMouseBar.MODE_THUMB_SPLIT){
                 int keyboardBottom=keyboard.isOpen()&&keyboard.getHeight()>0?Math.max(0,getHeight()-keyboard.getTop()):0;
                 int rightAvoid=(sideBar!=null&&sideBar.getVisibility()==VISIBLE)?Math.max(ui.dp(56),sideBar.getWidth()+ui.dp(12)):ui.dp(56);
+                if(letterboxDocked)rightAvoid=Math.max(rightAvoid,letterboxRightPx);
                 thumbOverlay.updateBounds(getWidth(),getHeight(),keyboardBottom,rightAvoid);
                 thumbOverlay.setVisibility(VISIBLE);
             }else{
@@ -323,7 +414,7 @@ final class SessionControls extends FrameLayout {
         mouseBar.setVisibility(VISIBLE);
     }
     void setMuted(boolean value){muted=value;if(menu!=null&&menuPage.equals("controls"))openMenu("controls");}
-    void videoSize(int width,int height){waiting.setVisibility(GONE);positionMouse();renderStatsHud();updateSideBarVisibility();}
+    void videoSize(int width,int height){waiting.setVisibility(GONE);if(connectedAtElapsedMs==0)connectedAtElapsedMs=android.os.SystemClock.elapsedRealtime();positionMouse();renderStatsHud();updateSideBarVisibility();}
     void resetVideoStatistics(){statistics(new RemoteNetworkStatistics.Snapshot(network.report,0,0,0,Double.NaN,network.rtt,network.remoteEncoder,network.localDecoder));}
     void statistics(RemoteNetworkStatistics.Snapshot value){network=value;renderNetwork();renderStatsHud();}
     void videoSettings(RemoteVideoSettings value){settings=value;renderVideoSettings();}
@@ -663,7 +754,7 @@ final class SessionControls extends FrameLayout {
         positionMouse();
     }
     @Override protected void onAttachedToWindow(){super.onAttachedToWindow();if(android.os.Build.VERSION.SDK_INT<30)getViewTreeObserver().addOnGlobalLayoutListener(legacyKeyboardLayout);}
-    @Override protected void onDetachedFromWindow(){getViewTreeObserver().removeOnGlobalLayoutListener(legacyKeyboardLayout);cancelMouseInput();super.onDetachedFromWindow();}
+    @Override protected void onDetachedFromWindow(){if(statsHud!=null)statsHud.removeCallbacks(durationTicker);getViewTreeObserver().removeOnGlobalLayoutListener(legacyKeyboardLayout);cancelMouseInput();super.onDetachedFromWindow();}
     @Override protected void onSizeChanged(int width,int height,int oldWidth,int oldHeight){super.onSizeChanged(width,height,oldWidth,oldHeight);post(this::constrainPanels);}
     private static float bound(float value,float min,float max){return Math.max(min,Math.min(value,Math.max(min,max)));}
 }
