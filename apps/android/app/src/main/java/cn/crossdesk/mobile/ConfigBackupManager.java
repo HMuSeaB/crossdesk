@@ -126,6 +126,8 @@ final class ConfigBackupManager {
         prefs.put("autoLandscape", settings.getBoolean("autoLandscape", false));
         prefs.put("autoClipboard", settings.getBoolean("autoClipboard", true));
         prefs.put("lastRemote", settings.getString("lastRemote", ""));
+        prefs.put("virtualMouseMode", settings.getInt("virtualMouseMode", VirtualMouseBar.MODE_EXPANDED));
+        prefs.put("thumbMouseLayout", settings.getString("thumbMouseLayout", ""));
 
         JSONObject recents = new JSONObject();
         Map<String, ?> allSettings = settings.getAll();
@@ -241,6 +243,14 @@ final class ConfigBackupManager {
             settingsEditor.putBoolean("autoLandscape", prefObj.optBoolean("autoLandscape", false));
             settingsEditor.putBoolean("autoClipboard", prefObj.optBoolean("autoClipboard", true));
             settingsEditor.putString("lastRemote", prefObj.optString("lastRemote", ""));
+            if (prefObj.has("virtualMouseMode")) {
+                int vmMode = Math.max(VirtualMouseBar.MODE_EXPANDED,
+                        Math.min(VirtualMouseBar.MODE_MINI, prefObj.optInt("virtualMouseMode", VirtualMouseBar.MODE_EXPANDED)));
+                settingsEditor.putInt("virtualMouseMode", vmMode);
+            }
+            if (prefObj.has("thumbMouseLayout") && prefObj.opt("thumbMouseLayout") instanceof String) {
+                settingsEditor.putString("thumbMouseLayout", prefObj.optString("thumbMouseLayout", ""));
+            }
         }
 
         int deviceCount = 0;

@@ -94,7 +94,7 @@ final class RemoteVideoView extends FrameLayout implements SurfaceHolder.Callbac
             }
             @Override public boolean onScroll(MotionEvent first, MotionEvent current, float dx, float dy) {
                 if (viewOnly || twoFinger || longPressArmed) return true;
-                if (dragging || usesRelativeMotion(current)) {
+                if (dragging || mouseInput.hasVirtualButton() || usesRelativeMotion(current)) {
                     point(current);
                     return true;
                 }
@@ -256,17 +256,23 @@ final class RemoteVideoView extends FrameLayout implements SurfaceHolder.Callbac
                 if (point(e)) click(3,4); return true;
             }
             if (action == MotionEvent.ACTION_MOVE && longPressArmed) {
-                if (Math.hypot(e.getX() - longPressStartX, e.getY() - longPressStartY) >= touchSlop) {
+                if (suppressPointerGesture()) {
                     longPressArmed = false;
-                    if (!suppressPointerGesture()) {
-                        lastX = longPressStartX;
-                        lastY = longPressStartY;
-                        mouseInput.gestureLeft(true);
-                        dragging = true;
+                    if (mouseInput.hasVirtualButton()) {
                         point(e);
+                        return true;
                     }
+                } else if (Math.hypot(e.getX() - longPressStartX, e.getY() - longPressStartY) >= touchSlop) {
+                    longPressArmed = false;
+                    lastX = longPressStartX;
+                    lastY = longPressStartY;
+                    mouseInput.gestureLeft(true);
+                    dragging = true;
+                    point(e);
+                    return true;
+                } else {
+                    return true;
                 }
-                return true;
             }
             if (action == MotionEvent.ACTION_MOVE && dragging) {
                 point(e);

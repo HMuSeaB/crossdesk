@@ -18,7 +18,8 @@ import android.widget.TextView;
 /** Touch ownership continues outside the original key bounds. */
 @SuppressLint("ViewConstructor")
 final class VirtualMouseBar extends LinearLayout {
-    static final int WIDTH_DP = 140, HEIGHT_DP = 68, MINI_DP = 40;
+    static final int MODE_EXPANDED = 0, MODE_THUMB_SPLIT = 1, MODE_MINI = 2;
+    static final int WIDTH_DP = 164, HEIGHT_DP = 74, MINI_DP = 40;
     final FrameLayout dragHandle;
     final View miniOrb;
     private final LinearLayout expandedPanel;
@@ -26,7 +27,7 @@ final class VirtualMouseBar extends LinearLayout {
     private final MobileUi ui;
     private final TextView[] keys = new TextView[3];
     private int generation;
-    private boolean collapsed;
+    private int mode = MODE_EXPANDED;
     Runnable onLayoutModeChanged;
 
     VirtualMouseBar(MobileUi ui, RemoteMouseInput input) {
@@ -41,33 +42,40 @@ final class VirtualMouseBar extends LinearLayout {
         expandedPanel.setMotionEventSplittingEnabled(true);
 
         LinearLayout header = ui.row();
+        header.setPadding(ui.dp(4), 0, ui.dp(2), 0);
+        TextView thumbModeBtn = ui.text(L10n.tr("双球"), 10, true);
+        thumbModeBtn.setTextColor(MobileUi.BLUE);
+        thumbModeBtn.setGravity(Gravity.CENTER);
+        thumbModeBtn.setContentDescription(L10n.tr("切换为极简双拇指鼠标"));
+        GradientDrawable thumbChip = ui.background(0x283A8BFF, 10);
+        thumbChip.setStroke(ui.dp(.5f), 0x803A8BFF);
+        thumbModeBtn.setBackground(thumbChip);
+        thumbModeBtn.setOnClickListener(v -> setMode(MODE_THUMB_SPLIT));
+        header.addView(thumbModeBtn, new LayoutParams(ui.dp(38), ui.dp(20)));
+
         dragHandle = new FrameLayout(ui.context);
-        dragHandle.setContentDescription(L10n.tr("拖动虚拟鼠标并移动指针"));
-        TextView pointerHint = ui.text("↖", 12, true);
-        pointerHint.setTextColor(MobileUi.BLUE);
-        pointerHint.setGravity(Gravity.CENTER);
-        dragHandle.addView(pointerHint, new FrameLayout.LayoutParams(ui.dp(22), ui.dp(22), Gravity.START | Gravity.CENTER_VERTICAL));
+        dragHandle.setContentDescription(L10n.tr("拖动虚拟鼠标面板"));
         View grip = new View(ui.context);
         grip.setBackground(ui.background(MobileUi.SECONDARY, 2));
         dragHandle.addView(grip, new FrameLayout.LayoutParams(ui.dp(28), ui.dp(3), Gravity.CENTER));
-        header.addView(dragHandle, new LayoutParams(0, ui.dp(22), 1));
+        header.addView(dragHandle, new LayoutParams(0, ui.dp(24), 1));
 
         TextView collapseBtn = ui.text("×", 14, true);
         collapseBtn.setTextColor(MobileUi.SECONDARY);
         collapseBtn.setGravity(Gravity.CENTER);
         collapseBtn.setContentDescription(L10n.tr("收起为迷你鼠标"));
-        collapseBtn.setOnClickListener(v -> setCollapsed(true));
-        header.addView(collapseBtn, new LayoutParams(ui.dp(26), ui.dp(22)));
-        expandedPanel.addView(header, new LayoutParams(LayoutParams.MATCH_PARENT, ui.dp(22)));
+        collapseBtn.setOnClickListener(v -> setMode(MODE_MINI));
+        header.addView(collapseBtn, new LayoutParams(ui.dp(28), ui.dp(24)));
+        expandedPanel.addView(header, new LayoutParams(LayoutParams.MATCH_PARENT, ui.dp(24)));
 
         LinearLayout row = ui.row();
         row.setPadding(ui.dp(4), 0, ui.dp(4), 0);
         row.setMotionEventSplittingEnabled(true);
-        expandedPanel.addView(row, new LayoutParams(LayoutParams.MATCH_PARENT, ui.dp(46)));
+        expandedPanel.addView(row, new LayoutParams(LayoutParams.MATCH_PARENT, ui.dp(50)));
         keys[0] = key(L10n.tr("鼠标左键，按住并拖动，松开结束拖拽"), 0);
         keys[1] = key(L10n.tr("鼠标滚轮，上下滑动，可滑出按键范围"), 1);
         keys[2] = key(L10n.tr("鼠标右键，按住并拖动，松开结束拖拽"), 2);
-        for (TextView key : keys) row.addView(key, new LayoutParams(0, ui.dp(42), 1));
+        for (TextView key : keys) row.addView(key, new LayoutParams(0, ui.dp(46), 1));
         addView(expandedPanel, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT));
 
         miniOrb = new MiniMouseOrb(ui);
@@ -79,17 +87,25 @@ final class VirtualMouseBar extends LinearLayout {
         setContentDescription(L10n.tr("虚拟鼠标"));
     }
 
-    boolean isCollapsed() { return collapsed; }
-    int currentWidthDp() { return collapsed ? MINI_DP : WIDTH_DP; }
-    int currentHeightDp() { return collapsed ? MINI_DP : HEIGHT_DP; }
+    int mode() { return mode; }
+    boolean isCollapsed() { return mode == MODE_MINI; }
+    boolean isThumbSplit() { return mode == MODE_THUMB_SPLIT; }
+    int currentWidthDp() { return mode == MODE_EXPANDED ? WIDTH_DP : MINI_DP; }
+    int currentHeightDp() { return mode == MODE_EXPANDED ? HEIGHT_DP : MINI_DP; }
+    RemoteMouseInput mouseInput() { return input; }
+
+    void setMode(int value) {
+        int normalized = Math.max(MODE_EXPANDED, Math.min(MODE_MINI, value));
+        if (mode == normalized) return;
+        cancelInput();
+        mode = normalized;
+        expandedPanel.setVisibility(normalized == MODE_EXPANDED ? VISIBLE : GONE);
+        miniOrb.setVisibility(normalized == MODE_EXPANDED ? GONE : VISIBLE);
+        if (onLayoutModeChanged != null) onLayoutModeChanged.run();
+    }
 
     void setCollapsed(boolean value) {
-        if (collapsed == value) return;
-        cancelInput();
-        collapsed = value;
-        expandedPanel.setVisibility(value ? GONE : VISIBLE);
-        miniOrb.setVisibility(value ? VISIBLE : GONE);
-        if (onLayoutModeChanged != null) onLayoutModeChanged.run();
+        setMode(value ? MODE_MINI : MODE_EXPANDED);
     }
 
     @SuppressLint("ClickableViewAccessibility") // Touch sends real down/up; performClick serves accessibility only.
@@ -173,7 +189,7 @@ final class VirtualMouseBar extends LinearLayout {
     void cancelInput() {
         input.releaseAll();
     }
-    private void resetTouches() {
+    void resetTouches() {
         generation++;
         for (int i=0;i<keys.length;i++) if (keys[i] != null) highlight(keys[i], i, false);
     }
@@ -202,7 +218,7 @@ final class VirtualMouseBar extends LinearLayout {
         }
     }
     /** Flat, uniformly colored treads follow the finger, wrapping every 5 dp. */
-    private static final class WheelKey extends TextView {
+    static final class WheelKey extends TextView {
         private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Path clip = new Path();
         private final float density;
